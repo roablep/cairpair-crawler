@@ -41,6 +41,7 @@ This project is a web crawler built with Python that extracts venue data (weddin
 2. **Install Dependencies**
 
    ```bash
+   pip install --upgrade pip
    pip install -r requirements.txt
    ```
 
@@ -80,6 +81,12 @@ You can modify these values as needed.
 - **Improvements:** The code is structured in multiple modules to maintain separation of concerns, making it easier for beginners to follow and extend the functionality.
 - **Dependencies:** Ensure that the package versions specified in `requirements.txt` are installed to avoid compatibility issues.
 
-## License
+Possibly use a proxy - https://dataimpulse.com/
+https://github.com/scraperai/scraperai
 
-Include license information if applicable.
+Example services/resources
+needymeds.org
+wearehfc.org/care-grants/
+leezascareconnection.org/home
+https://lorenzoshouse.org/
+https://www.fns.usda.gov/snap/supplemental-nutrition-assistance-program
