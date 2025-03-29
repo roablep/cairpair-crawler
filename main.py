@@ -4,6 +4,7 @@ import asyncio
 import argparse
 import logging
 import os
+import re
 from urllib.parse import urlparse 
 from datetime import datetime
 
