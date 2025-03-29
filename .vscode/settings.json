@@ -1,0 +1,10 @@
+{
+    "flake8.args": [
+        "--ignore=E305,E501,E302",
+        "--max-line-length=176"
+    ],
+    "pylint.args": [
+        "--disable=C0114,C0115,C0116,C0301,W1203",
+        "--max-line-length=176"
+    ],
+}
