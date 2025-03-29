@@ -22,6 +22,14 @@ from utils.scraper_utils import (
 # Load environment variables
 load_dotenv()
 
+STARTING_URLS = [
+    "https://wearehfc.org/care-grants/",
+    "https://leezascareconnection.org/home",
+    "https://lorenzoshouse.org/",
+    "https://www.fns.usda.gov/snap/supplemental-nutrition-assistance-program",
+    "https://www.needymeds.org"
+]
+
 # --- Logging Setup ---
 logging.basicConfig(
     level=logging.INFO,
@@ -113,7 +121,7 @@ async def main():
         'urls',
         metavar='URL',
         type=str,
-        nargs='+',
+        nargs='*',
         help='One or more URLs to crawl.'
     )
     parser.add_argument(
@@ -124,7 +132,14 @@ async def main():
     )
 
     args = parser.parse_args()
-    await crawl_resources(args.urls, args.output)
+    if STARTING_URLS:
+        logging.info("Using default starting URLs.")
+        urls = STARTING_URLS
+    else:
+        logging.info("Using URLs from CLI.")
+        urls = args.urls
+
+    await crawl_resources(urls, args.output)
 
 
 if __name__ == "__main__":
