@@ -1,6 +1,6 @@
 import json
 import os
-from typing import List, Set, Tuple
+from typing import List, Set  # Removed Tuple
 
 from crawl4ai import (
     AsyncWebCrawler,
@@ -9,6 +9,8 @@ from crawl4ai import (
     CrawlerRunConfig,
     LLMExtractionStrategy,
 )
+
+from typing import Dict, Any  # Added for type hinting
 
 from models.resource import CareResource
 from utils.data_utils import is_complete_resource, is_duplicate_resource
@@ -91,43 +93,33 @@ async def check_no_results(
 
 async def fetch_and_process_page(
     crawler: AsyncWebCrawler,
-    page_number: int,
-    base_url: str,
+    url: str,  # Changed from page_number and base_url
     css_selector: str,
     llm_strategy: LLMExtractionStrategy,
     session_id: str,
     required_keys: List[str],
-    seen_names: Set[str],
-) -> Tuple[List[dict], bool]:
+    seen_resource_identifiers: Set[str],  # Renamed from seen_names
+) -> List[Dict[str, Any]]:  # Return type changed
     """
-    Fetches and processes a single page of resource data.
+    Fetches and processes resource data from a single URL.
 
     Args:
         crawler (AsyncWebCrawler): The web crawler instance.
-        page_number (int): The page number to fetch.
-        base_url (str): The base URL of the website.
+        url (str): The URL to fetch data from.
         css_selector (str): The CSS selector to target the content.
         llm_strategy (LLMExtractionStrategy): The LLM extraction strategy.
         session_id (str): The session identifier.
         required_keys (List[str]): List of required keys in the resource data.
-        seen_names (Set[str]): Set of resource names that have already been seen.
+        seen_resource_identifiers (Set[str]): Set of resource identifiers (e.g., names) already seen.
 
     Returns:
-        Tuple[List[dict], bool]:
-            - List[dict]: A list of processed resources from the page.
-            - bool: A flag indicating if the "No Results Found" message was encountered.
+        List[Dict[str, Any]]: A list of processed resources from the page.
     """
-    url = f"{base_url}?page={page_number}"
-    print(f"Loading page {page_number}...")
-
-    # Check if "No Results Found" message is present
-    no_results = await check_no_results(crawler, url, session_id)
-    if no_results:
-        return [], True  # No more results, signal to stop crawling
+    # Removed pagination logic and check_no_results call
 
     # Fetch page content with the extraction strategy
     result = await crawler.arun(
-        url=url,
+        url=url,  # Use the direct URL
         config=CrawlerRunConfig(
             cache_mode=CacheMode.BYPASS,  # Do not use cached data
             extraction_strategy=llm_strategy,  # Strategy for data extraction
@@ -137,42 +129,72 @@ async def fetch_and_process_page(
     )
 
     if not (result.success and result.extracted_content):
-        print(f"Error fetching page {page_number}: {result.error_message}")
-        return [], False
+        print(f"Error fetching page {url}: {result.error_message}")  # Use url in log
+        return []  # Return empty list on error
 
     # Parse extracted content
-    extracted_data = json.loads(result.extracted_content)
-    if not extracted_data:
-        print(f"No resources found on page {page_number}.")
-        return [], False
+    try:
+        extracted_data = json.loads(result.extracted_content)
+        # Handle cases where LLM might return a single dict instead of a list
+        if isinstance(extracted_data, dict):
+            extracted_data = [extracted_data]
+        if not isinstance(extracted_data, list):
+            print(f"Unexpected data format from LLM for {url}: {type(extracted_data)}")  # Corrected indentation
+            return []  # Corrected indentation
+    except json.JSONDecodeError:
+        print(f"Failed to decode JSON from LLM for {url}: {result.extracted_content}")
+        return []
 
-    # After parsing extracted content
-    print("Extracted data:", extracted_data)
+    if not extracted_data:
+        print(f"No resources found on page {url}.")  # Use url in log
+        return []
+
+    # Debugging: Print extracted data structure
+    # print(f"Extracted data type for {url}: {type(extracted_data)}")
+    # print(f"Extracted data content for {url}: {extracted_data}")
 
     # Process resources
     complete_resources = []
     for resource in extracted_data:
         # Debugging: Print each resource to understand its structure
-        print("Processing resource:", resource)
+        # print("Processing resource:", resource)  # Commented out for cleaner logs
+
+        # Ignore the 'error' key if it's False
+        if resource.get("error") is False:
+            resource.pop("error", None)  # Remove the 'error' key if it's False
+
+        # Ensure resource is a dictionary before proceeding
+        if not isinstance(resource, dict):
+            print(f"Skipping non-dict item in extracted data for {url}: {resource}")
+            continue
+
+        # Use .get() for safer access, especially for 'name'
+        resource_name = resource.get("name")
+        if not resource_name:
+            print(f"Skipping resource without a name from {url}: {resource}")
+            continue
 
         # Ignore the 'error' key if it's False
         if resource.get("error") is False:
             resource.pop("error", None)  # Remove the 'error' key if it's False
 
         if not is_complete_resource(resource, required_keys):
+            # print(f"Skipping incomplete resource '{resource_name}' from {url}.")  # Commented out
             continue  # Skip incomplete resources
 
-        if is_duplicate_resource(resource["name"], seen_names):
-            print(f"Duplicate resource '{resource['name']}' found. Skipping.")
+        # Use a more robust identifier if needed, for now using name
+        resource_identifier = resource_name
+        if is_duplicate_resource(resource_identifier, seen_resource_identifiers):
+            # print(f"Duplicate resource '{resource_identifier}' found. Skipping.")  # Commented out
             continue  # Skip duplicate resources
 
-        # Add resource to the list
-        seen_names.add(resource["name"])
+        # Add resource identifier to the set
+        seen_resource_identifiers.add(resource_identifier)
         complete_resources.append(resource)
 
     if not complete_resources:
-        print(f"No complete resources found on page {page_number}.")
-        return [], False
+        # print(f"No complete and non-duplicate resources found on page {url}.")  # Commented out
+        return []
 
-    print(f"Extracted {len(complete_resources)} resources from page {page_number}.")
-    return complete_resources, False  # Continue crawling
+    # print(f"Processed {len(complete_resources)} resources from {url}.")  # Commented out
+    return complete_resources  # Return only the list

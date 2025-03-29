@@ -3,10 +3,11 @@
 import asyncio
 import argparse
 import logging
-import os
+# import os  # Removed unused import
 import re
-from urllib.parse import urlparse 
+from urllib.parse import urlparse
 from datetime import datetime
+from typing import List, Set, Dict, Any  # Added for type hinting
 
 from crawl4ai import AsyncWebCrawler
 from dotenv import load_dotenv
@@ -43,8 +44,8 @@ def sanitize_filename(url: str) -> str:
     parsed_url = urlparse(url)
     # Use netloc (domain) and path, replacing non-alphanumeric chars
     filename = f"{parsed_url.netloc}{parsed_url.path}"
-    filename = re.sub(r'[^\w\-_\.]', '_', filename) # Keep word chars, hyphen, underscore, dot
-    filename = filename.strip('_') # Remove leading/trailing underscores
+    filename = re.sub(r'[^\w\-_\.]', '_', filename)  # Keep word chars, hyphen, underscore, dot
+    filename = filename.strip('_')  # Remove leading/trailing underscores
     # Truncate if too long (optional)
     max_len = 100
     if len(filename) > max_len:
@@ -65,8 +66,8 @@ async def crawl_resources(start_urls: list[str], output_filename: str):
     llm_strategy = get_llm_strategy()
     session_id = f"crawl_session_{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
-    all_resources = []
-    seen_resource_keys = set()
+    all_resources: List[Dict[str, Any]] = []  # Added type hint
+    seen_resource_identifiers: Set[str] = set()  # Renamed and added type hint
     urls_to_crawl = set(start_urls)
     crawled_urls = set()
 
@@ -81,6 +82,7 @@ async def crawl_resources(start_urls: list[str], output_filename: str):
             crawled_urls.add(url)
 
             try:
+                # Updated function call arguments
                 resources = await fetch_and_process_page(
                     crawler=crawler,
                     url=url,
@@ -88,7 +90,7 @@ async def crawl_resources(start_urls: list[str], output_filename: str):
                     llm_strategy=llm_strategy,
                     session_id=session_id,
                     required_keys=REQUIRED_KEYS,
-                    seen_keys=seen_resource_keys,
+                    seen_resource_identifiers=seen_resource_identifiers,  # Use renamed variable
                 )
 
                 if resources:
@@ -132,12 +134,16 @@ async def main():
     )
 
     args = parser.parse_args()
-    if STARTING_URLS:
-        logging.info("Using default starting URLs.")
+    # Check if URLs were provided via CLI argument
+    if args.urls:
+        logging.info("Using URLs provided via command line.")
+        urls = args.urls
+    elif STARTING_URLS:
+        logging.info("No URLs provided via CLI. Using default STARTING_URLS.")
         urls = STARTING_URLS
     else:
-        logging.info("Using URLs from CLI.")
-        urls = args.urls
+        logging.error("No URLs provided via CLI and STARTING_URLS is empty. Exiting.")
+        return  # Exit if no URLs are available
 
     await crawl_resources(urls, args.output)
 
