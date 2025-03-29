@@ -1,82 +1,129 @@
+# main.py
+
 import asyncio
+import argparse
+import logging
+import os
+from urllib.parse import urlparse 
+from datetime import datetime
 
 from crawl4ai import AsyncWebCrawler
 from dotenv import load_dotenv
 
-from config import BASE_URL, CSS_SELECTOR, REQUIRED_KEYS
-from utils.data_utils import (
-    save_venues_to_csv,
-)
+from config import CSS_SELECTOR, REQUIRED_KEYS
+from utils.data_utils import save_resources_to_csv
 from utils.scraper_utils import (
     fetch_and_process_page,
     get_browser_config,
     get_llm_strategy,
 )
 
+# Load environment variables
 load_dotenv()
 
+# --- Logging Setup ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(module)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
-async def crawl_venues():
+# --- Helper Function for Sanitizing Filenames ---
+def sanitize_filename(url: str) -> str:
+    """Creates a safe filename string from a URL."""
+    parsed_url = urlparse(url)
+    # Use netloc (domain) and path, replacing non-alphanumeric chars
+    filename = f"{parsed_url.netloc}{parsed_url.path}"
+    filename = re.sub(r'[^\w\-_\.]', '_', filename) # Keep word chars, hyphen, underscore, dot
+    filename = filename.strip('_') # Remove leading/trailing underscores
+    # Truncate if too long (optional)
+    max_len = 100
+    if len(filename) > max_len:
+        filename = filename[:max_len]
+    return filename if filename else "default_url"
+
+# --- Core Crawling Function ---
+async def crawl_resources(start_urls: list[str], output_filename: str):
     """
-    Main function to crawl venue data from the website.
+    Crawls a list of starting URLs to extract caregiver resources.
+
+    Args:
+        start_urls (list[str]): Starting URLs.
+        output_filename (str): Output CSV filename.
     """
-    # Initialize configurations
+    logging.info(f"Initializing crawl for {len(start_urls)} URL(s).")
     browser_config = get_browser_config()
     llm_strategy = get_llm_strategy()
-    session_id = "venue_crawl_session"
+    session_id = f"crawl_session_{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
-    # Initialize state variables
-    page_number = 1
-    all_venues = []
-    seen_names = set()
+    all_resources = []
+    seen_resource_keys = set()
+    urls_to_crawl = set(start_urls)
+    crawled_urls = set()
 
-    # Start the web crawler context
-    # https://docs.crawl4ai.com/api/async-webcrawler/#asyncwebcrawler
     async with AsyncWebCrawler(config=browser_config) as crawler:
-        while True:
-            # Fetch and process data from the current page
-            venues, no_results_found = await fetch_and_process_page(
-                crawler,
-                page_number,
-                BASE_URL,
-                CSS_SELECTOR,
-                llm_strategy,
-                session_id,
-                REQUIRED_KEYS,
-                seen_names,
-            )
+        while urls_to_crawl:
+            url = urls_to_crawl.pop()
 
-            if no_results_found:
-                print("No more venues found. Ending crawl.")
-                break  # Stop crawling when "No Results Found" message appears
+            if not url or url in crawled_urls:
+                continue
 
-            if not venues:
-                print(f"No venues extracted from page {page_number}.")
-                break  # Stop if no venues are extracted
+            logging.info(f"🌐 Crawling: {url}")
+            crawled_urls.add(url)
 
-            # Add the venues from this page to the total list
-            all_venues.extend(venues)
-            page_number += 1  # Move to the next page
+            try:
+                resources = await fetch_and_process_page(
+                    crawler=crawler,
+                    url=url,
+                    css_selector=CSS_SELECTOR,
+                    llm_strategy=llm_strategy,
+                    session_id=session_id,
+                    required_keys=REQUIRED_KEYS,
+                    seen_keys=seen_resource_keys,
+                )
 
-            # Pause between requests to be polite and avoid rate limits
-            await asyncio.sleep(2)  # Adjust sleep time as needed
+                if resources:
+                    all_resources.extend(resources)
+                    logging.info(f"✅ {len(resources)} resources added from {url} (Total: {len(all_resources)})")
+                else:
+                    logging.info(f"⚠️ No resources found on {url}")
 
-    # Save the collected venues to a CSV file
-    if all_venues:
-        save_venues_to_csv(all_venues, "complete_venues.csv")
-        print(f"Saved {len(all_venues)} venues to 'complete_venues.csv'.")
+            except Exception as e:
+                logging.error(f"❌ Error processing {url}: {e}", exc_info=True)
+
+            await asyncio.sleep(2)  # Politeness delay
+
+    if all_resources:
+        save_resources_to_csv(all_resources, output_filename)
+        logging.info(f"📦 All resources saved to {output_filename}")
     else:
-        print("No venues were found during the crawl.")
+        logging.warning("🚫 No resources extracted.")
 
-    # Display usage statistics for the LLM strategy
+    logging.info("📊 LLM Usage:")
     llm_strategy.show_usage()
 
 
+# --- Main Entry Point ---
 async def main():
-    """
-    Entry point of the script.
-    """
-    await crawl_venues()
+    parser = argparse.ArgumentParser(
+        description="CarePair Resource Crawler – Extracts dementia caregiver resources from web pages."
+    )
+    parser.add_argument(
+        'urls',
+        metavar='URL',
+        type=str,
+        nargs='+',
+        help='One or more URLs to crawl.'
+    )
+    parser.add_argument(
+        '-o', '--output',
+        default='resources.csv',
+        type=str,
+        help='Output CSV filename (default: resources.csv)'
+    )
+
+    args = parser.parse_args()
+    await crawl_resources(args.urls, args.output)
 
 
 if __name__ == "__main__":

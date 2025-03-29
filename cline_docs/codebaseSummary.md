@@ -12,9 +12,8 @@ This document provides an overview of the existing codebase for the wedding venu
     *   **Purpose:** Contains configuration constants such as `BASE_URL`, `CSS_SELECTOR`, and `REQUIRED_KEYS`.
     *   **Adaptation:** Will be updated with new `BASE_URL` values for caregiver resource websites, appropriate `CSS_SELECTOR` values to target resource listings, and `REQUIRED_KEYS` corresponding to the fields in the `Resource` model.
 
-*   **`models/venue.py`**:
-    *   **Purpose:** Defines the `Venue` data model using Pydantic, specifying the structure of venue data to be extracted.
-    *   **Adaptation:** Will be renamed to `models/resource.py` and the `Venue` model will be replaced with a `Resource` model. This new model will include fields for all 17 data points required for caregiver resources (name, type, location, contact info, description, etc.).
+*   **`models/resource.py`**:
+    *   **Purpose:** Defines the `CareResource` data model using Pydantic, specifying the structure of data to be extracted.
 
 *   **`utils/data_utils.py`**:
     *   **Purpose:** Contains utility functions for data processing, such as checking for duplicate venues, verifying complete venue data, and saving venues to a CSV file.
