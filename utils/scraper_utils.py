@@ -1,7 +1,7 @@
 import json
 import os
 from typing import List, Set  # Removed Tuple
-
+import asyncio
 from crawl4ai import (
     AsyncWebCrawler,
     BrowserConfig,
@@ -72,7 +72,9 @@ async def check_no_results(
         bool: True if "No Results Found" message is found, False otherwise.
     """
     # Fetch the page without any CSS selector or extraction strategy
-    result = await crawler.arun(
+    # result = await crawler.arun(
+    result = safe_arun(
+        crawler=crawler,
         url=url,
         config=CrawlerRunConfig(
             cache_mode=CacheMode.BYPASS,
@@ -90,6 +92,19 @@ async def check_no_results(
 
     return False
 
+async def safe_arun(crawler, url, config, retries=3):
+    for i in range(retries):
+        # result = await crawler.arun(url, config=config)
+        result = safe_arun(crawler=crawler, url=url, config=config)
+        if result.success:
+            return result
+        if "rate limit" in (result.error_message or "").lower():
+            wait = 5 * (i + 1)
+            print(f"⚠️ Groq rate limit hit. Retrying in {wait}s...")
+            await asyncio.sleep(wait)
+        else:
+            break
+    return result  # Final attempt, might still be failure
 
 async def fetch_and_process_page(
     crawler: AsyncWebCrawler,
@@ -116,16 +131,21 @@ async def fetch_and_process_page(
         List[Dict[str, Any]]: A list of processed resources from the page.
     """
     # Removed pagination logic and check_no_results call
-
+    config = CrawlerRunConfig(
+        cache_mode=CacheMode.BYPASS,  # Do not use cached data
+        extraction_strategy=llm_strategy,  # Strategy for data extraction
+        css_selector=css_selector,  # Target specific content on the page
+        session_id=session_id,  # Unique session ID for the crawl
+        semaphore_count=2,     # Concurrency cap (like dispatcher)
+        mean_delay=2.0,        # Delay between requests to same domain
+        max_range=3.0          # Adds random jitter between 0–3s
+    )
     # Fetch page content with the extraction strategy
-    result = await crawler.arun(
+    # result = await crawler.arun(
+    result = safe_arun(
+        crawler=crawler,
         url=url,  # Use the direct URL
-        config=CrawlerRunConfig(
-            cache_mode=CacheMode.BYPASS,  # Do not use cached data
-            extraction_strategy=llm_strategy,  # Strategy for data extraction
-            css_selector=css_selector,  # Target specific content on the page
-            session_id=session_id,  # Unique session ID for the crawl
-        ),
+        config=config,
     )
 
     if not (result.success and result.extracted_content):
