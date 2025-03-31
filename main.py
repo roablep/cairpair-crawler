@@ -24,11 +24,11 @@ from utils.scraper_utils import (
 load_dotenv()
 
 STARTING_URLS = [
-    "https://wearehfc.org/care-grants/",
-    "https://leezascareconnection.org/home",
+    #"https://wearehfc.org/care-grants/",
+    #"https://leezascareconnection.org/home",
     "https://lorenzoshouse.org/",
-    "https://www.fns.usda.gov/snap/supplemental-nutrition-assistance-program",
-    "https://www.needymeds.org"
+    #"https://www.fns.usda.gov/snap/supplemental-nutrition-assistance-program",
+    #"https://www.needymeds.org"
 ]
 
 # --- Logging Setup ---
@@ -112,7 +112,7 @@ async def crawl_resources(start_urls: list[str], output_filename: str):
     if all_resources:
         full_output_path = os.path.join(data_dir, output_filename)
         save_resources_to_csv(all_resources, full_output_path)
-        logging.info(f"📦 All resources saved to {full_output_path} (gzipped pickle)")
+        logging.info(f"📦 All resources saved to {full_output_path}")
     else:
         logging.warning("🚫 No resources extracted.")
 

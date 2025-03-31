@@ -89,7 +89,7 @@ async def fetch_and_process_page(
     current_depth: int = 0,
     max_depth: int = 1,
     max_secondary_links: int = 3,
-    existing_resources: list[Optional[dict]] = [],
+    existing_resources: Optional[list[Optional[dict]]] = None,
     existing_provider: Optional[ResourceProvider] = None,
 ) -> tuple[List[Optional[dict[str, Any]]], Optional[ResourceProvider]]:
     """
@@ -112,8 +112,10 @@ async def fetch_and_process_page(
     Returns:
         CrawlResult: A list of processed resources from the page.
     """
-    logger.debug(f"Crawling {url}")
+    logger.debug(f"Crawling n: {url}")
     # --- Base Case Checks ---
+    if existing_resources is None:
+        existing_resources = []
     trigger_secondary_crawl = False
     # Check 1: Already crawled globally in this job?
     if url in global_crawled_urls:
@@ -154,12 +156,14 @@ async def fetch_and_process_page(
     if current_depth == 0:
         # only get on main crawl
         provider: ResourceProvider = await extract_with_llm(content=result.markdown, extraction_template=ResourceProviderforLLM)
+        provider.website = result.url
     else:
         provider = existing_provider
 
     care_resources: CareResources = await extract_with_llm(content=result.markdown, extraction_template=CareResourcesforLLM)
     resources = care_resources.resources
-    if (resources is None or not all(is_complete_resource(r) for r in resources)) and current_depth < max_depth:
+
+    if (resources is None or len(resources) == 0 or not all(is_complete_resource(r) for r in resources)) and current_depth < max_depth:
         logger.info(f"Generating 2ndary crawl candidates for {result.url}")
         ranked_pages: RankedUrlList = await rank_pages_for_secondary_crawl(content=result.markdown)
         trigger_secondary_crawl = True
@@ -171,11 +175,11 @@ async def fetch_and_process_page(
         data_dir="./data/crawl"
     )
 
-    provider.website = result.url
     for resource in resources:
         # Process each resource immediately with the current result.url
         resource_identifier = resource.resource_name
         if is_duplicate_resource(resource_identifier, seen_resource_identifiers):
+            print(f'Skipping {resource_identifier}')
             continue  # Skip duplicates
         seen_resource_identifiers.add(resource_identifier)
 
@@ -212,16 +216,14 @@ async def fetch_and_process_page(
                     max_depth=max_depth,                         # Pass limits down
                     max_secondary_links=max_secondary_links,
                     existing_provider=provider,
-                    existing_resources=resources
                 )
                 if secondary_resources:
-                    resources.extend(secondary_resources)
+                    existing_resources.extend(secondary_resources)
                 else:
-                    print(f"No resources found on subpage {url}.")  # Use url in log
-                    resource = []
+                    logging.debug(f"No resources found on subpage {secondary_url}.")
 
     if not existing_resources:
-        # print(f"No complete and non-duplicate resources found on page {url}.")
+        logging.debug(f"No complete and non-duplicate resources found on page {url}.")
         return [], provider
 
     new_provider = ResourceProvider(**provider.model_dump())
