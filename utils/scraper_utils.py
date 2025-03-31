@@ -9,6 +9,8 @@ from crawl4ai import (
     CacheMode,
     CrawlerRunConfig,
     LLMExtractionStrategy,
+    LLMConfig,
+    CrawlResult
 )
 
 from typing import Dict, Any  # Added for type hinting
@@ -31,6 +33,11 @@ def get_browser_config() -> BrowserConfig:
         verbose=True,  # Enable verbose logging
     )
 
+def get_llm_config() -> LLMConfig:
+    return LLMConfig(
+        provider="groq/deepseek-r1-distill-llama-70b",  # Name of the LLM provider
+        api_token=os.getenv("GROQ_API_KEY"),  # API token for authentication
+    )
 
 def get_llm_strategy() -> LLMExtractionStrategy:
     """
@@ -41,8 +48,7 @@ def get_llm_strategy() -> LLMExtractionStrategy:
     """
     # https://docs.crawl4ai.com/api/strategies/#llmextractionstrategy
     return LLMExtractionStrategy(
-        provider="groq/deepseek-r1-distill-llama-70b",  # Name of the LLM provider
-        api_token=os.getenv("GROQ_API_KEY"),  # API token for authentication
+        llm_config=get_llm_config(),
         schema=CareResource.model_json_schema(),  # JSON schema of the data model
         extraction_type="schema",  # Type of extraction to perform
         instruction=(
@@ -93,7 +99,7 @@ async def check_no_results(
 
     return False
 
-async def safe_arun(crawler: AsyncWebCrawler, url: str, config: CrawlerRunConfig, retries=3):
+async def safe_arun(crawler: AsyncWebCrawler, url: str, config: CrawlerRunConfig, retries=3) -> CrawlResult:
     for i in range(retries):
         result = await crawler.arun(url, config=config)
         if result.success:
@@ -114,7 +120,7 @@ async def fetch_and_process_page(
     session_id: str,
     required_keys: List[str],
     seen_resource_identifiers: Set[str],  # Renamed from seen_names
-) -> List[Dict[str, Any]]:  # Return type changed
+) -> CrawlResult:
     """
     Fetches and processes resource data from a single URL.
 
@@ -128,7 +134,7 @@ async def fetch_and_process_page(
         seen_resource_identifiers (Set[str]): Set of resource identifiers (e.g., names) already seen.
 
     Returns:
-        List[Dict[str, Any]]: A list of processed resources from the page.
+        CrawlResult: A list of processed resources from the page.
     """
     # Removed pagination logic and check_no_results call
     config = CrawlerRunConfig(
