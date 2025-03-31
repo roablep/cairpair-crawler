@@ -112,6 +112,7 @@ async def fetch_and_process_page(
     Returns:
         CrawlResult: A list of processed resources from the page.
     """
+    logger.debug(f"Crawling {url}")
     # --- Base Case Checks ---
     trigger_secondary_crawl = False
     # Check 1: Already crawled globally in this job?
@@ -158,7 +159,7 @@ async def fetch_and_process_page(
 
     care_resources: CareResources = await extract_with_llm(content=result.markdown, extraction_template=CareResourcesforLLM)
     resources = care_resources.resources
-    if resources is None or not all(is_complete_resource(r) for r in resources):
+    if (resources is None or not all(is_complete_resource(r) for r in resources)) and current_depth < max_depth:
         logger.info(f"Generating 2ndary crawl candidates for {result.url}")
         ranked_pages: RankedUrlList = await rank_pages_for_secondary_crawl(content=result.markdown)
         trigger_secondary_crawl = True
@@ -171,6 +172,28 @@ async def fetch_and_process_page(
     )
 
     provider.website = result.url
+    for resource in resources:
+        # Process each resource immediately with the current result.url
+        resource_identifier = resource.resource_name
+        if is_duplicate_resource(resource_identifier, seen_resource_identifiers):
+            continue  # Skip duplicates
+        seen_resource_identifiers.add(resource_identifier)
+
+        resource_info = resource.model_dump()
+        if resource_info['resource_category']:
+            del resource_info['resource_category']
+
+        cat_subscat = await classify_resource_type(resource_info)
+
+        new_resource = CareResource(**resource.model_dump())
+        new_resource.source_url = url
+        new_resource.source_origin = urlparse(result.url).netloc
+        new_resource.resource_category = cat_subscat.category
+        new_resource.resource_subcategory = cat_subscat.subcategory
+        new_resource.date_added_to_db = datetime.now()
+        new_resource.date_last_reviewed = datetime.now()
+
+        existing_resources.append(new_resource.model_dump())
 
     if trigger_secondary_crawl:
         if ranked_pages and current_depth < max_depth:
@@ -192,38 +215,10 @@ async def fetch_and_process_page(
                     existing_resources=resources
                 )
                 if secondary_resources:
-                    resources = secondary_resources
+                    resources.extend(secondary_resources)
                 else:
                     print(f"No resources found on subpage {url}.")  # Use url in log
-                    return [], None
-
-    # Process resources
-    for resource in resources:
-        # Use a more robust identifier if needed, for now using name
-        resource_identifier = resource.resource_name
-        if is_duplicate_resource(resource_identifier, seen_resource_identifiers):
-            # print(f"Duplicate resource '{resource_identifier}' found. Skipping.")
-            continue  # Skip duplicate resources
-
-        # reclassify the resource
-        resource_info = resource.model_dump()
-        if resource_info['resource_category']:
-            del resource_info['resource_category']
-
-        cat_subscat = await classify_resource_type(resource_info)
-
-        new_resource = CareResource(**resource.model_dump())
-        new_resource.resource_category = cat_subscat.category
-        new_resource.resource_subcategory = cat_subscat.subcategory
-        new_resource.source_url = result.url
-        new_resource.date_added_to_db = datetime.now()
-        new_resource.date_last_reviewed = datetime.now()
-        new_resource.source_url = result.url
-        new_resource.source_origin = urlparse(result.url).netloc
-
-        # Add resource identifier to the set
-        seen_resource_identifiers.add(resource_identifier)
-        existing_resources.append(new_resource.model_dump())
+                    resource = []
 
     if not existing_resources:
         # print(f"No complete and non-duplicate resources found on page {url}.")
