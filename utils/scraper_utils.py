@@ -89,6 +89,8 @@ async def fetch_and_process_page(
     current_depth: int = 0,
     max_depth: int = 1,
     max_secondary_links: int = 3,
+    existing_resources: list[Optional[dict]] = [],
+    existing_provider: Optional[ResourceProvider] = None,
 ) -> tuple[List[Optional[dict[str, Any]]], Optional[ResourceProvider]]:
     """
     Fetches and processes resource data from a single URL.
@@ -111,6 +113,7 @@ async def fetch_and_process_page(
         CrawlResult: A list of processed resources from the page.
     """
     # --- Base Case Checks ---
+    trigger_secondary_crawl = False
     # Check 1: Already crawled globally in this job?
     if url in global_crawled_urls:
         logger.info(f"[Depth {current_depth}] Skipping already crawled URL: {url}")
@@ -151,13 +154,14 @@ async def fetch_and_process_page(
         # only get on main crawl
         provider: ResourceProvider = await extract_with_llm(content=result.markdown, extraction_template=ResourceProviderforLLM)
     else:
-        provider = None
+        provider = existing_provider
 
     care_resources: CareResources = await extract_with_llm(content=result.markdown, extraction_template=CareResourcesforLLM)
     resources = care_resources.resources
     if resources is None or not all(is_complete_resource(r) for r in resources):
         logger.info(f"Generating 2ndary crawl candidates for {result.url}")
         ranked_pages: RankedUrlList = await rank_pages_for_secondary_crawl(content=result.markdown)
+        trigger_secondary_crawl = True
 
     # save result
     save_resource_to_gzipped_pickle(
@@ -168,7 +172,7 @@ async def fetch_and_process_page(
 
     provider.website = result.url
 
-    if resources is None:
+    if trigger_secondary_crawl:
         if ranked_pages and current_depth < max_depth:
             for i, secondary_url in enumerate(ranked_pages[:max_secondary_links]):
                 logger.info(f"[Depth {current_depth}] >>> Trying secondary URL #{i+1}: {secondary_url}")
@@ -183,7 +187,9 @@ async def fetch_and_process_page(
                     global_crawled_urls=global_crawled_urls,      # Share the set to avoid loops/revisits
                     current_depth=current_depth + 1,             # Increment depth
                     max_depth=max_depth,                         # Pass limits down
-                    max_secondary_links=max_secondary_links
+                    max_secondary_links=max_secondary_links,
+                    existing_provider=provider,
+                    existing_resources=resources
                 )
                 if secondary_resources:
                     resources = secondary_resources
@@ -192,9 +198,7 @@ async def fetch_and_process_page(
                     return [], None
 
     # Process resources
-    complete_resources = []
     for resource in resources:
-
         # Use a more robust identifier if needed, for now using name
         resource_identifier = resource.resource_name
         if is_duplicate_resource(resource_identifier, seen_resource_identifiers):
@@ -205,8 +209,9 @@ async def fetch_and_process_page(
         resource_info = resource.model_dump()
         if resource_info['resource_category']:
             del resource_info['resource_category']
+
         cat_subscat = await classify_resource_type(resource_info)
-        
+
         new_resource = CareResource(**resource.model_dump())
         new_resource.resource_category = cat_subscat.category
         new_resource.resource_subcategory = cat_subscat.subcategory
@@ -218,13 +223,13 @@ async def fetch_and_process_page(
 
         # Add resource identifier to the set
         seen_resource_identifiers.add(resource_identifier)
-        complete_resources.append(new_resource.model_dump())
+        existing_resources.append(new_resource.model_dump())
 
-    if not complete_resources:
+    if not existing_resources:
         # print(f"No complete and non-duplicate resources found on page {url}.")
         return [], provider
 
     new_provider = ResourceProvider(**provider.model_dump())
-    new_provider.resources = complete_resources
+    new_provider.resources = existing_resources
     # print(f"Processed {len(complete_resources)} resources from {url}.")
-    return complete_resources, provider  # Return only the list
+    return existing_resources, new_provider  # Return only the list
