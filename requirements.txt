@@ -2,3 +2,5 @@ Crawl4AI
 python-dotenv
 pydantic
 ipython
+dspy
+mlflow

@@ -5,7 +5,10 @@ from datetime import datetime
 
 class CareResource(BaseModel):
     # Core Identifiers
-    name: Optional[str] = Field(
+    provider_name: Optional[str] = Field(
+        None, description="The official name of the resource or service provider."
+    )
+    resource_name: Optional[str] = Field(
         None, description="The official name of the resource or service."
     )
     resource_type: Optional[str] = Field(
@@ -78,3 +81,41 @@ class CareResource(BaseModel):
     date_last_reviewed: Optional[datetime] = Field(
         None, description="When this resource was last reviewed or updated in our system."
     )
+
+class CareResources(BaseModel):
+    """
+    A collection of CareResource objects.
+    """
+    resources: List[CareResource] = Field(
+        default_factory=list,
+        description="List of CareResource objects."
+    )
+
+class ResourceProvider(BaseModel):
+    """
+    A provider of resources, including the name and a list of resources.
+    """
+
+    provider_name: Optional[str] = Field(
+        None, description="The official name of the resource or service provider."
+    )
+    resource_type: Optional[str] = Field(
+        None,
+        description="Expanded category (e.g., Home Care Assistance, Legal Aid, Support Group).",
+    )
+
+    # Location Information
+    location_city: Optional[str] = Field(
+        None, description="City where the resource is based, if applicable."
+    )
+    location_state: Optional[str] = Field(
+        None, description="State where the resource is based, if applicable."
+    )
+    location_country: Optional[str] = Field(
+        None, description="Country where the resource is based, if applicable."
+    )
+    
+    # Contact Info
+    contact_phone: Optional[str] = Field(None, description="Contact phone number.")
+    contact_email: Optional[str] = Field(None, description="Contact email address.")
+    website: Optional[str] = Field(None, description="Primary website for the resource.")

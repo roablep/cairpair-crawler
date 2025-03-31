@@ -130,7 +130,7 @@ ALL_STANDARD_RESOURCE_TYPES = [
 ]
 
 REQUIRED_KEYS = [
-    "name",
+    "resource_name",
     "resource_type",
     "description",
     "source_url"  # Automatically added during processing

@@ -3,7 +3,7 @@ from typing import Set, Dict, Any, List  # Added for type hinting
 import csv
 # Removed duplicate import csv
 
-from models.resource import CareResource
+from models.resource import CareResource, CareResources
 
 
 def is_duplicate_resource(resource_identifier: str, seen_resource_identifiers: Set[str]) -> bool:  # Renamed parameter

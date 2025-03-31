@@ -12,10 +12,11 @@ from crawl4ai import (
     LLMConfig,
     CrawlResult
 )
+from crawl4ai.deep_crawling import DeepCrawlStrategy
 
 from typing import Dict, Any  # Added for type hinting
 
-from models.resource import CareResource
+from models.resource import CareResource, CareResources
 from utils.data_utils import is_complete_resource, is_duplicate_resource
 
 
@@ -49,7 +50,7 @@ def get_llm_strategy() -> LLMExtractionStrategy:
     # https://docs.crawl4ai.com/api/strategies/#llmextractionstrategy
     return LLMExtractionStrategy(
         llm_config=get_llm_config(),
-        schema=CareResource.model_json_schema(),  # JSON schema of the data model
+        schema=CareResources.model_json_schema(),  # JSON schema of the data model
         extraction_type="schema",  # Type of extraction to perform
         instruction=(
             "Extract any dementia caregiving-related resources with fields such as name, resource type, location, "
@@ -101,7 +102,7 @@ async def check_no_results(
 
 async def safe_arun(crawler: AsyncWebCrawler, url: str, config: CrawlerRunConfig, retries=3) -> CrawlResult:
     for i in range(retries):
-        result = await crawler.arun(url, config=config)
+        result: CrawlResult = await crawler.arun(url, config=config)
         if result.success:
             return result
         if "Rate limit reached for model `deepseek-r1-distill-llama-70b`" in (result.error_message or "").lower():
@@ -139,7 +140,9 @@ async def fetch_and_process_page(
     # Removed pagination logic and check_no_results call
     config = CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,  # Do not use cached data
+        deep_crawl_strategy=None,
         extraction_strategy=llm_strategy,  # Strategy for data extraction
+        only_text=True,  # get text only
         css_selector=css_selector,  # Target specific content on the page
         session_id=session_id,  # Unique session ID for the crawl
         semaphore_count=2,     # Concurrency cap (like dispatcher)
