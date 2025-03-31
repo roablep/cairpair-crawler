@@ -131,9 +131,8 @@ ALL_STANDARD_RESOURCE_TYPES = [
 
 REQUIRED_KEYS = [
     "resource_name",
-    "resource_type",
     "description",
-    "source_url"  # Automatically added during processing
+    "resource_format"
 ]
 
 CSS_SELECTOR: str | None = None  # anything inside 'body' - do not use 'body' since it's already scoped

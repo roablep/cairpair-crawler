@@ -1,9 +1,12 @@
+import os
 import pickle
 import gzip
 from typing import Set, Dict, Any, List
 import csv
 from datetime import datetime
+from pydantic import BaseModel
 from models.resource import CareResource, CareResources
+from config import REQUIRED_KEYS
 
 def is_duplicate_resource(resource_identifier: str, seen_resource_identifiers: Set[str]) -> bool:  # Renamed parameter
     dupe = resource_identifier in seen_resource_identifiers
@@ -13,22 +16,28 @@ def is_duplicate_resource(resource_identifier: str, seen_resource_identifiers: S
     return dupe
 
 
-def is_complete_resource(resource: Dict[str, Any], required_keys: List[str]) -> bool:  # Added type hints
-    yes = all(key in resource and resource[key] is not None for key in required_keys)  # Also check for None
-    if not yes:
-        # print(f"❌ Resource missing keys: {resource}")
-        pass
-    return yes
+def is_complete_resource(resource: BaseModel, required_keys: List[str] = REQUIRED_KEYS) -> bool:  # Added type hints
+    for key in required_keys:
+        value = getattr(resource, key, None)  # Get attribute, default to None if missing
+        if not value or value == "":  # Check for None or empty string
+            # Optionally, log or handle missing keys:
+            # print(f"❌ Resource missing or empty value for key '{key}': {resource}")
+            return False  # Return False immediately if a key is missing or empty
+    return True  # All keys are present and have non-empty values
 
 
-def save_resource_to_gzipped_pickle(resource: Any, filename: str):
+def save_resource_to_gzipped_pickle(resource: Any, filename: str, data_dir: str = 'data'):
     """Saves a list of resource dictionaries to a gzipped pickle file."""
+
+    os.makedirs(data_dir, exist_ok=True)
 
     # Ensure the filename ends with .pkl.gz
     if not filename.endswith(".pkl.gz"):
         filename += ".pkl.gz"
 
-    with gzip.open(filename, "wb") as f:
+    full_output_path = os.path.join(data_dir, filename)
+
+    with gzip.open(full_output_path, "wb") as f:
         pickle.dump(resource, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 def save_resources_to_csv(resources: List[Dict[str, Any]], filename: str):

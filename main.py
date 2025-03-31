@@ -13,7 +13,7 @@ from crawl4ai import AsyncWebCrawler
 from dotenv import load_dotenv
 
 from config import CSS_SELECTOR, REQUIRED_KEYS
-from utils.data_utils import save_resources_to_csv
+from utils.data_utils import save_resources_to_csv, save_resource_to_gzipped_pickle
 from utils.scraper_utils import (
     fetch_and_process_page,
     get_browser_config,
@@ -66,8 +66,10 @@ async def crawl_resources(start_urls: list[str], output_filename: str):
     llm_strategy = get_llm_strategy()
     session_id = f"crawl_session_{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
-    all_resources: List[Dict[str, Any]] = []  # Added type hint
-    seen_resource_identifiers: Set[str] = set()  # Renamed and added type hint
+    task_visited_urls: Set = set()
+    all_providers: List[Dict[str, Any]] = []
+    all_resources: List[Dict[str, Any]] = []
+    seen_resource_identifiers: Set[str] = set()
     urls_to_crawl = set(start_urls)
     crawled_urls = set()
 
@@ -83,14 +85,15 @@ async def crawl_resources(start_urls: list[str], output_filename: str):
 
             try:
                 # Updated function call arguments
-                resources = await fetch_and_process_page(
+                resources, provider = await fetch_and_process_page(
                     crawler=crawler,
                     url=url,
                     css_selector=CSS_SELECTOR,
                     llm_strategy=llm_strategy,
                     session_id=session_id,
                     required_keys=REQUIRED_KEYS,
-                    seen_resource_identifiers=seen_resource_identifiers,  # Use renamed variable
+                    seen_resource_identifiers=seen_resource_identifiers,
+                    global_crawled_urls=task_visited_urls,
                 )
 
                 if resources:
@@ -104,16 +107,18 @@ async def crawl_resources(start_urls: list[str], output_filename: str):
 
             await asyncio.sleep(2)  # Politeness delay
 
+    data_dir = "data"
+    os.makedirs(data_dir, exist_ok=True)
     if all_resources:
-        # Ensure the data directory exists
-        data_dir = "data"
-        os.makedirs(data_dir, exist_ok=True)
         full_output_path = os.path.join(data_dir, output_filename)
-
         save_resources_to_csv(all_resources, full_output_path)
         logging.info(f"📦 All resources saved to {full_output_path} (gzipped pickle)")
     else:
         logging.warning("🚫 No resources extracted.")
+
+    if all_providers:
+        full_output_path = os.path.join(data_dir, 'providers.pkl.gz')
+        save_resource_to_gzipped_pickle(all_providers, full_output_path)
 
     logging.info("📊 LLM Usage:")
     llm_strategy.show_usage()

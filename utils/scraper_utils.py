@@ -1,7 +1,8 @@
 # utils/scraper_utils.py
-import json
+import logging
 import os
-from typing import List, Set  # Removed Tuple
+from datetime import datetime
+from typing import List, Set, Optional
 import asyncio
 from crawl4ai import (
     AsyncWebCrawler,
@@ -12,14 +13,14 @@ from crawl4ai import (
     LLMConfig,
     CrawlResult
 )
-from crawl4ai.deep_crawling import DeepCrawlStrategy
-
+from urllib.parse import urlparse
 from typing import Dict, Any  # Added for type hinting
 
-from utils.llm_utils import extract_with_llm, rank_pages_for_secondary_crawl
-from models.resource import CareResource, CareResources, ResourceProvider
+from utils.llm_utils import extract_with_llm, rank_pages_for_secondary_crawl, classify_resource_type
+from models.resource import CareResource, CareResourceforLLM, CareResourcesforLLM, CareResources, ResourceProviderforLLM, ResourceProvider, RankedUrlList
 from utils.data_utils import is_complete_resource, is_duplicate_resource, save_resource_to_gzipped_pickle
 
+logger = logging.getLogger(__name__)
 
 def get_browser_config() -> BrowserConfig:
     """
@@ -80,12 +81,15 @@ async def fetch_and_process_page(
     crawler: AsyncWebCrawler,
     url: str,  # Changed from page_number and base_url
     css_selector: str | None,  # Optional CSS selector. Do NOT use 'body'. Anything under 'body' is fine
-    llm_strategy: LLMExtractionStrategy,
+    llm_strategy: LLMExtractionStrategy | None,
     session_id: str,
     required_keys: List[str],
     seen_resource_identifiers: Set[str],
-    crawl_level: int = 0
-) -> CrawlResult:
+    global_crawled_urls: Set[str], 
+    current_depth: int = 0,
+    max_depth: int = 1,
+    max_secondary_links: int = 3,
+) -> tuple[List[Optional[dict[str, Any]]], Optional[ResourceProvider]]:
     """
     Fetches and processes resource data from a single URL.
 
@@ -97,10 +101,25 @@ async def fetch_and_process_page(
         session_id (str): The session identifier.
         required_keys (List[str]): List of required keys in the resource data.
         seen_resource_identifiers (Set[str]): Set of resource identifiers (e.g., names) already seen.
+        global_crawled_urls: Set to track URLs already visited in this crawl task.
+        current_depth: The current depth of the crawl (0 for initial).
+        max_depth: The maximum depth to crawl recursively.
+        max_secondary_links: The max number of ranked secondary links to follow.
+
 
     Returns:
         CrawlResult: A list of processed resources from the page.
     """
+    # --- Base Case Checks ---
+    # Check 1: Already crawled globally in this job?
+    if url in global_crawled_urls:
+        logger.info(f"[Depth {current_depth}] Skipping already crawled URL: {url}")
+        return [], None
+    # Check 2: Exceeded maximum depth?
+    if current_depth > max_depth:
+        logger.warning(f"[Depth {current_depth}] Max depth ({max_depth}) reached for URL: {url}. Stopping descent.")
+        return [], None
+
     config = CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,  # Do not use cached data
         deep_crawl_strategy=None,
@@ -119,81 +138,93 @@ async def fetch_and_process_page(
         url=url,  # Use the direct URL
         config=config,
     )
+    # Mark this URL as crawled for this job run
+    global_crawled_urls.add(result.url)
 
-    if not (result.success):
+    if not result.success or not result.markdown:
         print(f"Error fetching page {url}: {result.error_message}")  # Use url in log
-        return []  # Return empty list on error
+        return [], None  # Return empty list on error
 
-    provider = None
-    resource = None
     ranked_pages = None
-    provider = await extract_with_llm(content=result.markdown, extraction_template=ResourceProvider)
-    resources = await extract_with_llm(content=result.markdown, extraction_template=CareResources)
-    if resources is None:
-        ranked_pages = await rank_pages_for_secondary_crawl(content=result.markdown)
+
+    if current_depth == 0:
+        # only get on main crawl
+        provider: ResourceProvider = await extract_with_llm(content=result.markdown, extraction_template=ResourceProviderforLLM)
+    else:
+        provider = None
+
+    care_resources: CareResources = await extract_with_llm(content=result.markdown, extraction_template=CareResourcesforLLM)
+    resources = care_resources.resources
+    if resources is None or not all(is_complete_resource(r) for r in resources):
+        logger.info(f"Generating 2ndary crawl candidates for {result.url}")
+        ranked_pages: RankedUrlList = await rank_pages_for_secondary_crawl(content=result.markdown)
 
     # save result
-    save_resource_to_gzipped_pickle({'crawl_result': result, 'provider': provider, 'resources': resources, 'ranked_pages': ranked_pages}, f"result_{url.replace('/', '_')}.pkl.gz")
+    save_resource_to_gzipped_pickle(
+        resource={'crawl_result': result, 'provider': provider, 'resources': resources, 'ranked_pages': ranked_pages},
+        filename=f"result_{url.replace('/', '_')}.pkl.gz",
+        data_dir="./data/crawl"
+    )
 
-    # Parse extracted content
-    try:
-        extracted_data = json.loads(result.extracted_content)
-        # Handle cases where LLM might return a single dict instead of a list
-        if isinstance(extracted_data, dict):
-            extracted_data = [extracted_data]
-        if not isinstance(extracted_data, list):
-            print(f"Unexpected data format from LLM for {url}: {type(extracted_data)}")  # Corrected indentation
-            return []  # Corrected indentation
-    except json.JSONDecodeError:
-        print(f"Failed to decode JSON from LLM for {url}: {result.extracted_content}")
-        return []
+    provider.website = result.url
 
-    if not extracted_data:
-        print(f"No resources found on page {url}.")  # Use url in log
-        return []
+    if resources is None:
+        if ranked_pages and current_depth < max_depth:
+            for i, secondary_url in enumerate(ranked_pages[:max_secondary_links]):
+                logger.info(f"[Depth {current_depth}] >>> Trying secondary URL #{i+1}: {secondary_url}")
+                secondary_resources, _ = await fetch_and_process_page(
+                    crawler=crawler,  # *** Pass the SAME crawler instance ***
+                    url=secondary_url,
+                    llm_strategy=None,
+                    css_selector=None,
+                    session_id=session_id,
+                    required_keys=required_keys,
+                    seen_resource_identifiers=seen_resource_identifiers,  # Share the set for global deduplication
+                    global_crawled_urls=global_crawled_urls,      # Share the set to avoid loops/revisits
+                    current_depth=current_depth + 1,             # Increment depth
+                    max_depth=max_depth,                         # Pass limits down
+                    max_secondary_links=max_secondary_links
+                )
+                if secondary_resources:
+                    resources = secondary_resources
+                else:
+                    print(f"No resources found on subpage {url}.")  # Use url in log
+                    return [], None
 
     # Process resources
     complete_resources = []
-    for resource in extracted_data:
-        # Debugging: Print each resource to understand its structure
-        # print("Processing resource:", resource)  # Commented out for cleaner logs
-
-        # Ignore the 'error' key if it's False
-        if resource.get("error") is False:
-            resource.pop("error", None)  # Remove the 'error' key if it's False
-
-        # Ensure resource is a dictionary before proceeding
-        if not isinstance(resource, dict):
-            print(f"Skipping non-dict item in extracted data for {url}: {resource}")
-            continue
-
-        # Use .get() for safer access, especially for 'name'
-        resource_name = resource.get("name")
-        if not resource_name:
-            print(f"Skipping resource without a name from {url}: {resource}")
-            continue
-
-        # Ignore the 'error' key if it's False
-        if resource.get("error") is False:
-            resource.pop("error", None)  # Remove the 'error' key if it's False
-
-        if not is_complete_resource(resource, required_keys):
-            # print(f"Skipping incomplete resource '{resource_name}' from {url}.")  # Commented out
-            continue  # Skip incomplete resources
+    for resource in resources:
 
         # Use a more robust identifier if needed, for now using name
-        resource_identifier = resource_name
+        resource_identifier = resource.resource_name
         if is_duplicate_resource(resource_identifier, seen_resource_identifiers):
-            # print(f"Duplicate resource '{resource_identifier}' found. Skipping.")  # Commented out
+            # print(f"Duplicate resource '{resource_identifier}' found. Skipping.")
             continue  # Skip duplicate resources
+
+        # reclassify the resource
+        resource_info = resource.model_dump()
+        if resource_info['resource_category']:
+            del resource_info['resource_category']
+        cat_subscat = await classify_resource_type(resource_info)
+        
+        new_resource = CareResource(**resource.model_dump())
+        new_resource.resource_category = cat_subscat.category
+        new_resource.resource_subcategory = cat_subscat.subcategory
+        new_resource.source_url = result.url
+        new_resource.date_added_to_db = datetime.now()
+        new_resource.date_last_reviewed = datetime.now()
+        new_resource.source_url = result.url
+        new_resource.source_origin = urlparse(result.url).netloc
 
         # Add resource identifier to the set
         seen_resource_identifiers.add(resource_identifier)
-        complete_resources.append(resource)
+        complete_resources.append(new_resource.model_dump())
 
     if not complete_resources:
-        # print(f"No complete and non-duplicate resources found on page {url}.")  # Commented out
-        return []
+        # print(f"No complete and non-duplicate resources found on page {url}.")
+        return [], provider
 
-    # print(f"Processed {len(complete_resources)} resources from {url}.")  # Commented out
-    return complete_resources  # Return only the list
+    new_provider = ResourceProvider(**provider.model_dump())
+    new_provider.resources = complete_resources
+    # print(f"Processed {len(complete_resources)} resources from {url}.")
+    return complete_resources, provider  # Return only the list

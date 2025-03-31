@@ -1,20 +1,96 @@
 # models/resource.py
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 
-class CareResource(BaseModel):
+class CareResourceforLLM(BaseModel):
+
     # Core Identifiers
     provider_name: Optional[str] = Field(
         None, description="The official name of the resource or service provider."
     )
-    resource_name: Optional[str] = Field(
-        None, description="The official name of the resource or service."
+    resource_name: str = Field(
+        ..., description="The official name of the resource or service."
     )
-    resource_type: Optional[str] = Field(
+    resource_category: Optional[str] = Field(
         None,
         description="Expanded category (e.g., Home Care Assistance, Legal Aid, Support Group).",
     )
+    # Location Information
+    location_city: Optional[str] = Field(
+        None, description="City where the resource is based, if applicable."
+    )
+    location_state: Optional[str] = Field(
+        None, description="State where the resource is based, if applicable."
+    )
+    location_country: Optional[str] = Field(
+        None, description="Country where the resource is based, if applicable."
+    )
+
+    # Contact Info
+    contact_phone: Optional[str] = Field(None, description="Contact phone number.")
+    contact_email: Optional[str] = Field(None, description="Contact email address.")
+
+    # Descriptive Info
+    description: Optional[str] = Field(
+        None, description="Brief summary of the resource or service."
+    )
+    schedule_details: Optional[str] = Field(
+        None,
+        description="Information on schedule, dates, times, or frequency (e.g., 'Meets Tuesdays 2-4 PM', 'Monthly')."
+    )
+    age_range: Optional[str] = Field(
+        None, description="Target age group (e.g., '18+', '65 and older')."
+    )
+    target_audience: Optional[List[str]] = Field(
+        None, description="Intended users (e.g., caregivers, people with dementia, professionals)."
+    )
+    cost_details: Optional[str] = Field(
+        None, description="Cost info (e.g., 'Free', 'Sliding scale', 'Insurance accepted')."
+    )
+    eligibility_criteria: Optional[str] = Field(
+        None, description="Requirements to access this resource (e.g., must be a caregiver)."
+    )
+    languages: Optional[List[str]] = Field(
+        None, description="Languages offered (e.g., ['English', 'Spanish'])."
+    )
+    accessibility_features: Optional[List[str]] = Field(
+        None,
+        description="Accessibility info (e.g., ['Wheelchair accessible', 'Transportation provided'])."
+    )
+    resource_format: Optional[str] = Field(
+        None, description="Delivery format (e.g., 'In-person', 'Virtual', 'Hybrid')."
+    )
+
+    # Provenance & Metadata
+    source_last_updated: Optional[str] = Field(
+        None, description="Last updated date on the source website (if available)."
+    )
+
+class CareResourcesforLLM(BaseModel):
+    """
+    A collection of CareResource objects.
+    """
+    resources: List[CareResourceforLLM] = Field(
+        default_factory=list,
+        description="List of CareResource objects."
+    )
+
+class CareResource(BaseModel):
+    model_config = ConfigDict(extra='allow')
+
+    # Core Identifiers
+    provider_name: Optional[str] = Field(
+        None, description="The official name of the resource or service provider."
+    )
+    resource_name: str = Field(
+        ..., description="The official name of the resource or service."
+    )
+    resource_category: Optional[str] = Field(
+        None,
+        description="Expanded category (e.g., Home Care Assistance, Legal Aid, Support Group).",
+    )
+    resource_subcategory: Optional[str] = Field(None)
 
     # Location Information
     location_city: Optional[str] = Field(
@@ -86,20 +162,21 @@ class CareResources(BaseModel):
     """
     A collection of CareResource objects.
     """
-    resources: Optional[List[CareResource]] = Field(
+    resources: List[CareResource] = Field(
         default_factory=list,
         description="List of CareResource objects."
     )
 
-class ResourceProvider(BaseModel):
+class ResourceProviderforLLM(BaseModel):
     """
     A provider of resources, including the name and a list of resources.
     """
+    model_config = ConfigDict(extra='allow')
 
     provider_name: Optional[str] = Field(
         None, description="The official name of the resource or service provider."
     )
-    resource_type: Optional[str] = Field(
+    resource_category: Optional[str] = Field(
         None,
         description="Expanded category (e.g., Home Care Assistance, Legal Aid, Support Group).",
     )
@@ -113,12 +190,47 @@ class ResourceProvider(BaseModel):
     )
     location_country: Optional[str] = Field(
         None, description="Country where the resource is based, if applicable."
+    )  
+    address: Optional[str] = Field(
+        None, description="Full address of the resources headquarters, if available. e.g. 123 N Walker St, Arlington VA, 22207"
     )
-    
     # Contact Info
     contact_phone: Optional[str] = Field(None, description="Contact phone number.")
     contact_email: Optional[str] = Field(None, description="Contact email address.")
     website: Optional[str] = Field(None, description="Primary website for the resource.")
 
+class ResourceProvider(BaseModel):
+    """
+    A provider of resources, including the name and a list of resources.
+    """
+    model_config = ConfigDict(extra='allow')
+
+    provider_name: Optional[str] = Field(
+        None, description="The official name of the resource or service provider."
+    )
+    resource_category: Optional[str] = Field(
+        None,
+        description="Expanded category (e.g., Home Care Assistance, Legal Aid, Support Group).",
+    )
+
+    # Location Information
+    location_city: Optional[str] = Field(
+        None, description="City where the resource is based, if applicable."
+    )
+    location_state: Optional[str] = Field(
+        None, description="State where the resource is based, if applicable."
+    )
+    location_country: Optional[str] = Field(
+        None, description="Country where the resource is based, if applicable."
+    )  
+    address: Optional[str] = Field(
+        None, description="Full address of the resources headquarters, if available. e.g. 123 N Walker St, Arlington VA, 22207"
+    )
+    # Contact Info
+    contact_phone: Optional[str] = Field(None, description="Contact phone number.")
+    contact_email: Optional[str] = Field(None, description="Contact email address.")
+    website: Optional[str] = Field(None, description="Primary website for the resource.")
+    resources: Optional[list[CareResource]] = None
+
 class RankedUrlList(BaseModel):
-        ranked_urls: List[str] = Field(..., description="A list of URLs, ordered from most to least promising for finding detailed caregiver resource information (like support groups, financial aid, program details, contact info).")
+    ranked_urls: List[str] = Field(..., description="A list of URLs, ordered from most to least promising for finding detailed caregiver resource information (like support groups, financial aid, program details, contact info).")

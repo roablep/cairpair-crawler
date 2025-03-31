@@ -3,16 +3,24 @@
 import os
 import logging
 from dotenv import load_dotenv
-from typing import Optional, List
+from typing import Optional, List, Dict
 from pydantic import BaseModel
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_groq import ChatGroq
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.rate_limiters import InMemoryRateLimiter
 
+from config import RESOURCE_TYPE_CATEGORIES
 from models.resource import RankedUrlList
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+class category(BaseModel):
+    category: str
+    subcategory: str
 
 rate_limiter = InMemoryRateLimiter(
     requests_per_second=5,  # Limit to 5 requests per second
@@ -20,12 +28,13 @@ rate_limiter = InMemoryRateLimiter(
     max_bucket_size=10,  # Controls the maximum burst size.
 )
 
-def get_langchain_groq() -> BaseChatModel:
+def get_langchain_model() -> BaseChatModel:
     """Returns a LangChain Groq LLM instance."""
-    return ChatGroq(model='groq/deepseek-r1-distill-llama-70b', temperature=0.2, api_key=os.getenv("GROQ_API_KEY"), rate_limiter=rate_limiter)
+    # return ChatGroq(model='deepseek-r1-distill-llama-70b', temperature=0.2, api_key=os.getenv("GROQ_API_KEY"), rate_limiter=rate_limiter)
+    return ChatGoogleGenerativeAI(model='gemini-2.0-flash-lite', temperature=0.2, api_key=os.getenv("GOOGLE_API_KEY"), rate_limiter=rate_limiter)
 
 
-async def extract_with_llm(content: str, extraction_template: BaseModel, llm: BaseChatModel = get_langchain_groq()) -> Optional[BaseModel]:
+async def extract_with_llm(content: str, extraction_template: BaseModel, llm: BaseChatModel = get_langchain_model()) -> Optional[BaseModel]:
     """Processes HTML content with LangChain and the LLM."""
     prompt_template = ChatPromptTemplate.from_messages(
         [
@@ -36,9 +45,6 @@ async def extract_with_llm(content: str, extraction_template: BaseModel, llm: Ba
                 "If you do not know the value of an attribute asked to extract, "
                 "return null for the attribute's value.",
             ),
-            # Please see the how-to about improving performance with
-            # reference examples.
-            # MessagesPlaceholder('examples'),
             ("human", "{text}"),
         ]
     )
@@ -51,7 +57,7 @@ async def extract_with_llm(content: str, extraction_template: BaseModel, llm: Ba
         print(f"Langchain processing error: {e}")
         return None
 
-async def rank_pages_for_secondary_crawl(content: str, llm: BaseChatModel = get_langchain_groq(), max_links_to_rank=20) -> List[str]:
+async def rank_pages_for_secondary_crawl(content: str, llm: BaseChatModel = get_langchain_model(), max_links_to_rank=5) -> List[str]:
     """
     Analyzes markdown content to find and rank URLs likely containing resource details.
 
@@ -103,7 +109,6 @@ async def rank_pages_for_secondary_crawl(content: str, llm: BaseChatModel = get_
 
         # 3. Invoke LLM
         output: Optional[RankedUrlList] = await chain.ainvoke({
-            # "markdown_content": content, # Avoid sending full markdown if possible
             "content": content
         })
 
@@ -111,12 +116,56 @@ async def rank_pages_for_secondary_crawl(content: str, llm: BaseChatModel = get_
         if output and output.ranked_urls:
             # Ensure we return between 0 and 5 URLs
             ranked_list = output.ranked_urls[:5]
-            logging.info(f"LLM recommended secondary crawl URLs: {ranked_list}")
+            logger.info(f"LLM recommended secondary crawl URLs: {ranked_list}")
             return ranked_list
         else:
-            logging.warning("LLM did not return a ranked list of URLs for secondary crawl.")
+            logger.warning("LLM did not return a ranked list of URLs for secondary crawl.")
             return []
 
     except Exception as e:
-        logging.error(f"Error ranking pages for secondary crawl: {e}", exc_info=True)
+        logger.error(f"Error ranking pages for secondary crawl: {e}", exc_info=True)
         return []
+
+async def classify_resource_type(content, llm: BaseChatModel = get_langchain_model()) -> category:
+    """
+    Classifies the resource type based on the provided content.
+
+    Args:
+        content: The content to classify.
+        llm: The language model instance to use.
+
+    Returns:
+        The classified resource type, or None if classification fails.
+    """
+    try:
+        formatted_categories = "\n".join(
+            [
+                f"{category}:\n" + "\n".join([f"- {sub}" for sub in subcategories])
+                for category, subcategories in RESOURCE_TYPE_CATEGORIES.items()
+            ]
+        )
+        prompt_template = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    f"You are an expert in classifying resources for caregivers, people with dementia, or older adults. Given the provided content, determine the most appropriate resource category and subcategory from the following list:\n\n{formatted_categories}\n\n"
+                    "Return ONLY ONE category name and ONE subcategory. If none of the categories fit, return None."
+                ),
+                (
+                    "human",
+                    "Here is the content to classify:\n{content}"
+                ),
+            ]
+        )
+
+        chain = prompt_template | llm.with_structured_output(category)
+
+        output: Optional[Dict[str, str]] = await chain.ainvoke({
+            "content": content
+        })
+
+        return output
+
+    except Exception as e:
+        logger.error(f"Error classifying resource type: {e}", exc_info=True)
+        return None

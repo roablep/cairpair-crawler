@@ -6,4 +6,5 @@ dspy
 mlflow
 langchain
 langchain-groq
+langchain-google-genai
 groq
