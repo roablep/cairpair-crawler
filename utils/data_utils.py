@@ -7,11 +7,19 @@ from models.resource import CareResource
 
 
 def is_duplicate_resource(resource_identifier: str, seen_resource_identifiers: Set[str]) -> bool:  # Renamed parameter
-    return resource_identifier in seen_resource_identifiers
+    dupe = resource_identifier in seen_resource_identifiers
+    if not dupe:
+        # print(f"✅ New resource: {resource_identifier}")
+        pass
+    return dupe
 
 
 def is_complete_resource(resource: Dict[str, Any], required_keys: List[str]) -> bool:  # Added type hints
-    return all(key in resource and resource[key] is not None for key in required_keys)  # Also check for None
+    yes = all(key in resource and resource[key] is not None for key in required_keys)  # Also check for None
+    if not yes:
+        # print(f"❌ Resource missing keys: {resource}")
+        pass
+    return yes
 
 
 def save_resources_to_csv(resources: List[Dict[str, Any]], filename: str):  # Added type hint

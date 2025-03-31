@@ -133,7 +133,7 @@ REQUIRED_KEYS = [
     "name",
     "resource_type",
     "description",
-    "source_url" # Automatically added during processing
+    "source_url"  # Automatically added during processing
 ]
 
-CSS_SELECTOR = "body"
+CSS_SELECTOR: str | None = None  # anything inside 'body' - do not use 'body' since it's already scoped

@@ -1,3 +1,4 @@
+# utils/scraper_utils.py
 import json
 import os
 from typing import List, Set  # Removed Tuple
@@ -73,7 +74,7 @@ async def check_no_results(
     """
     # Fetch the page without any CSS selector or extraction strategy
     # result = await crawler.arun(
-    result = safe_arun(
+    result = await safe_arun(
         crawler=crawler,
         url=url,
         config=CrawlerRunConfig(
@@ -92,13 +93,12 @@ async def check_no_results(
 
     return False
 
-async def safe_arun(crawler, url, config, retries=3):
+async def safe_arun(crawler: AsyncWebCrawler, url: str, config: CrawlerRunConfig, retries=3):
     for i in range(retries):
-        # result = await crawler.arun(url, config=config)
-        result = safe_arun(crawler=crawler, url=url, config=config)
+        result = await crawler.arun(url, config=config)
         if result.success:
             return result
-        if "rate limit" in (result.error_message or "").lower():
+        if "Rate limit reached for model `deepseek-r1-distill-llama-70b`" in (result.error_message or "").lower():
             wait = 5 * (i + 1)
             print(f"⚠️ Groq rate limit hit. Retrying in {wait}s...")
             await asyncio.sleep(wait)
@@ -142,12 +142,13 @@ async def fetch_and_process_page(
     )
     # Fetch page content with the extraction strategy
     # result = await crawler.arun(
-    result = safe_arun(
+    result = await safe_arun(
         crawler=crawler,
         url=url,  # Use the direct URL
         config=config,
     )
 
+    # result['message']
     if not (result.success and result.extracted_content):
         print(f"Error fetching page {url}: {result.error_message}")  # Use url in log
         return []  # Return empty list on error
