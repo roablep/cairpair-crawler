@@ -17,7 +17,7 @@ from crawl4ai.deep_crawling import DeepCrawlStrategy
 from typing import Dict, Any  # Added for type hinting
 
 from models.resource import CareResource, CareResources
-from utils.data_utils import is_complete_resource, is_duplicate_resource
+from utils.data_utils import is_complete_resource, is_duplicate_resource, save_resource_to_gzipped_pickle
 
 
 def get_browser_config() -> BrowserConfig:
@@ -62,44 +62,6 @@ def get_llm_strategy() -> LLMExtractionStrategy:
         verbose=True,  # Enable verbose logging
     )
 
-
-async def check_no_results(
-    crawler: AsyncWebCrawler,
-    url: str,
-    session_id: str,
-) -> bool:
-    """
-    Checks if the "No Results Found" message is present on the page.
-
-    Args:
-        crawler (AsyncWebCrawler): The web crawler instance.
-        url (str): The URL to check.
-        session_id (str): The session identifier.
-
-    Returns:
-        bool: True if "No Results Found" message is found, False otherwise.
-    """
-    # Fetch the page without any CSS selector or extraction strategy
-    # result = await crawler.arun(
-    result = await safe_arun(
-        crawler=crawler,
-        url=url,
-        config=CrawlerRunConfig(
-            cache_mode=CacheMode.BYPASS,
-            session_id=session_id,
-        ),
-    )
-
-    if result.success:
-        if "No Results Found" in result.cleaned_html:
-            return True
-    else:
-        print(
-            f"Error fetching page for 'No Results Found' check: {result.error_message}"
-        )
-
-    return False
-
 async def safe_arun(crawler: AsyncWebCrawler, url: str, config: CrawlerRunConfig, retries=3) -> CrawlResult:
     for i in range(retries):
         result: CrawlResult = await crawler.arun(url, config=config)
@@ -137,11 +99,10 @@ async def fetch_and_process_page(
     Returns:
         CrawlResult: A list of processed resources from the page.
     """
-    # Removed pagination logic and check_no_results call
     config = CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,  # Do not use cached data
         deep_crawl_strategy=None,
-        extraction_strategy=llm_strategy,  # Strategy for data extraction
+        extraction_strategy=None,  # llm_strategy,  # Strategy for data extraction
         only_text=True,  # get text only
         css_selector=css_selector,  # Target specific content on the page
         session_id=session_id,  # Unique session ID for the crawl
@@ -161,6 +122,9 @@ async def fetch_and_process_page(
     if not (result.success and result.extracted_content):
         print(f"Error fetching page {url}: {result.error_message}")  # Use url in log
         return []  # Return empty list on error
+
+    # save result
+    save_resource_to_gzipped_pickle(result, f"result_{url.replace('/', '_')}.pkl.gz")
 
     # Parse extracted content
     try:

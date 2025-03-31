@@ -21,8 +21,9 @@
 3.  **Modify `models/venue.py` to `models/resource.py`:** Adapt the data model to represent caregiver resources with the required 17 fields.
 4.  **Modify `config.py`:** Update configuration variables such as `BASE_URL`, `CSS_SELECTOR`, and `REQUIRED_KEYS` for caregiver resource websites.
 5.  **Modify `utils/scraper_utils.py`:** Update the LLM extraction strategy to extract caregiver resource data based on the new `Resource` model.
-6.  **Modify `main.py` and `utils/data_utils.py`:** Adapt the main crawling logic and data processing functions to work with caregiver resources.
-7.  **Test the crawler:** Test the adapted crawler on the example URLs provided and refine as needed.
+6.  **Modify `utils/data_utils.py`:** Adapt the data saving function (`save_resources_to_gzipped_pickle`) to save output as a gzipped pickle file in the `data/` directory.
+7.  **Modify `main.py`:** Adapt the main crawling logic to call the updated saving function and handle the new output format/location.
+8.  **Test the crawler:** Test the adapted crawler on the example URLs provided and refine as needed.
 
 ### Reference Documents
 

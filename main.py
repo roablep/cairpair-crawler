@@ -3,7 +3,7 @@
 import asyncio
 import argparse
 import logging
-# import os  # Removed unused import
+import os  # Added os import
 import re
 from urllib.parse import urlparse
 from datetime import datetime
@@ -59,7 +59,7 @@ async def crawl_resources(start_urls: list[str], output_filename: str):
 
     Args:
         start_urls (list[str]): Starting URLs.
-        output_filename (str): Output CSV filename.
+        output_filename (str): Output filename (without directory).
     """
     logging.info(f"Initializing crawl for {len(start_urls)} URL(s).")
     browser_config = get_browser_config()
@@ -105,8 +105,13 @@ async def crawl_resources(start_urls: list[str], output_filename: str):
             await asyncio.sleep(2)  # Politeness delay
 
     if all_resources:
-        save_resources_to_csv(all_resources, output_filename)
-        logging.info(f"📦 All resources saved to {output_filename}")
+        # Ensure the data directory exists
+        data_dir = "data"
+        os.makedirs(data_dir, exist_ok=True)
+        full_output_path = os.path.join(data_dir, output_filename)
+
+        save_resources_to_csv(all_resources, full_output_path)
+        logging.info(f"📦 All resources saved to {full_output_path} (gzipped pickle)")
     else:
         logging.warning("🚫 No resources extracted.")
 
@@ -130,7 +135,7 @@ async def main():
         '-o', '--output',
         default='resources.csv',
         type=str,
-        help='Output CSV filename (default: resources.csv)'
+        help='Output filename in data/ directory (default: resources.csv)'
     )
 
     args = parser.parse_args()

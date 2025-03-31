@@ -1,10 +1,9 @@
-from datetime import datetime  # Import datetime
-from typing import Set, Dict, Any, List  # Added for type hinting
+import pickle
+import gzip
+from typing import Set, Dict, Any, List
 import csv
-# Removed duplicate import csv
-
+from datetime import datetime
 from models.resource import CareResource, CareResources
-
 
 def is_duplicate_resource(resource_identifier: str, seen_resource_identifiers: Set[str]) -> bool:  # Renamed parameter
     dupe = resource_identifier in seen_resource_identifiers
@@ -22,7 +21,17 @@ def is_complete_resource(resource: Dict[str, Any], required_keys: List[str]) -> 
     return yes
 
 
-def save_resources_to_csv(resources: List[Dict[str, Any]], filename: str):  # Added type hint
+def save_resource_to_gzipped_pickle(resource: Any, filename: str):
+    """Saves a list of resource dictionaries to a gzipped pickle file."""
+
+    # Ensure the filename ends with .pkl.gz
+    if not filename.endswith(".pkl.gz"):
+        filename += ".pkl.gz"
+
+    with gzip.open(filename, "wb") as f:
+        pickle.dump(resource, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+def save_resources_to_csv(resources: List[Dict[str, Any]], filename: str):
     if not resources:
         print("No resources to save.")
         return

@@ -6,7 +6,7 @@
 *   Create a comprehensive database of caregiver resources, categorized by type, location, and other relevant criteria.
 *   Ensure the crawler is robust, scalable, and can handle different website structures.
 *   Implement a scheduled crawling mechanism to keep the resource database up-to-date.
-*   Output the extracted data in CSV format for easy integration and analysis.
+*   Output the extracted data in gzipped pickle format for efficient storage.
 
 ### Key Features
 
@@ -17,7 +17,7 @@
 *   **Contact Information Extraction:** Extract phone numbers, emails, websites, etc.
 *   **Scheduled Crawling:** Ability to run the crawler on a schedule (daily, weekly, monthly).
 *   **Error Handling & Logging:** Graceful error handling and logging of crawling issues.
-*   **CSV Output:** Output data in a structured CSV format.
+*   **Gzipped Pickle Output:** Output data in a compressed pickle format.
 
 ### Completion Criteria
 
@@ -25,7 +25,7 @@
 *   Extracted data includes all 17 key data points for a significant portion of resources.
 *   Resource data is accurately categorized by type and location.
 *   Crawler runs without errors and logs relevant information.
-*   CSV output is generated with all extracted data.
+*   Gzipped pickle output is generated with all extracted data.
 *   Basic documentation is in place.
 
 ### Progress Tracker
@@ -38,6 +38,7 @@
     *   Adapt data model for caregiver resources - [ ]
     *   Update configuration for target websites - [ ]
     *   Modify LLM strategy for resource extraction - [ ]
+    *   Modify data saving to use gzipped pickle - [x]  <!-- Added this task -->
 *   **Phase 3: Crawling & Extraction Logic** - [ ]
     *   Implement crawling logic for target websites - [ ]
     *   Refine data extraction and processing - [ ]
@@ -48,7 +49,7 @@
     *   Refine crawler performance and accuracy - [ ]
 *   **Phase 5: Scheduling & Output** - [ ]
     *   Implement scheduled crawling - [ ]
-    *   Configure CSV output - [ ]
+    *   Configure gzipped pickle output - [x] <!-- Updated this task -->
     *   Finalize documentation - [ ]
 
 ### Future Scalability Considerations
@@ -60,3 +61,4 @@
 
 ### Completed Tasks
 *   **2025-03-29:** Project planning and documentation setup initiated. Initial project roadmap created.
+*   **2025-03-31:** Modified data saving mechanism to use gzipped pickle format in the `data/` directory. Updated relevant code (`utils/data_utils.py`, `main.py`) and documentation (`currentTask.md`, `projectRoadmap.md`).

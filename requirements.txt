@@ -4,3 +4,5 @@ pydantic
 ipython
 dspy
 mlflow
+langchain
+groq
