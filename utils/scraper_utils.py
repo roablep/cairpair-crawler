@@ -109,7 +109,7 @@ async def safe_arun(crawler: AsyncWebCrawler, url: str, config: CrawlerRunConfig
 async def fetch_and_process_page(
     crawler: AsyncWebCrawler,
     url: str,  # Changed from page_number and base_url
-    css_selector: str,
+    css_selector: str | None,  # Optional CSS selector. Do NOT use 'body'. Anything under 'body' is fine
     llm_strategy: LLMExtractionStrategy,
     session_id: str,
     required_keys: List[str],
