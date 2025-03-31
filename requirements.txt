@@ -5,4 +5,5 @@ ipython
 dspy
 mlflow
 langchain
+langchain-groq
 groq

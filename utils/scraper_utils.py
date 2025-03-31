@@ -16,7 +16,8 @@ from crawl4ai.deep_crawling import DeepCrawlStrategy
 
 from typing import Dict, Any  # Added for type hinting
 
-from models.resource import CareResource, CareResources
+from utils.llm_utils import extract_with_llm, rank_pages_for_secondary_crawl
+from models.resource import CareResource, CareResources, ResourceProvider
 from utils.data_utils import is_complete_resource, is_duplicate_resource, save_resource_to_gzipped_pickle
 
 
@@ -82,7 +83,8 @@ async def fetch_and_process_page(
     llm_strategy: LLMExtractionStrategy,
     session_id: str,
     required_keys: List[str],
-    seen_resource_identifiers: Set[str],  # Renamed from seen_names
+    seen_resource_identifiers: Set[str],
+    crawl_level: int = 0
 ) -> CrawlResult:
     """
     Fetches and processes resource data from a single URL.
@@ -118,13 +120,20 @@ async def fetch_and_process_page(
         config=config,
     )
 
-    # result['message']
-    if not (result.success and result.extracted_content):
+    if not (result.success):
         print(f"Error fetching page {url}: {result.error_message}")  # Use url in log
         return []  # Return empty list on error
 
+    provider = None
+    resource = None
+    ranked_pages = None
+    provider = await extract_with_llm(content=result.markdown, extraction_template=ResourceProvider)
+    resources = await extract_with_llm(content=result.markdown, extraction_template=CareResources)
+    if resources is None:
+        ranked_pages = await rank_pages_for_secondary_crawl(content=result.markdown)
+
     # save result
-    save_resource_to_gzipped_pickle(result, f"result_{url.replace('/', '_')}.pkl.gz")
+    save_resource_to_gzipped_pickle({'crawl_result': result, 'provider': provider, 'resources': resources, 'ranked_pages': ranked_pages}, f"result_{url.replace('/', '_')}.pkl.gz")
 
     # Parse extracted content
     try:
@@ -142,10 +151,6 @@ async def fetch_and_process_page(
     if not extracted_data:
         print(f"No resources found on page {url}.")  # Use url in log
         return []
-
-    # Debugging: Print extracted data structure
-    # print(f"Extracted data type for {url}: {type(extracted_data)}")
-    # print(f"Extracted data content for {url}: {extracted_data}")
 
     # Process resources
     complete_resources = []

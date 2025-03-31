@@ -86,7 +86,7 @@ class CareResources(BaseModel):
     """
     A collection of CareResource objects.
     """
-    resources: List[CareResource] = Field(
+    resources: Optional[List[CareResource]] = Field(
         default_factory=list,
         description="List of CareResource objects."
     )
@@ -119,3 +119,6 @@ class ResourceProvider(BaseModel):
     contact_phone: Optional[str] = Field(None, description="Contact phone number.")
     contact_email: Optional[str] = Field(None, description="Contact email address.")
     website: Optional[str] = Field(None, description="Primary website for the resource.")
+
+class RankedUrlList(BaseModel):
+        ranked_urls: List[str] = Field(..., description="A list of URLs, ordered from most to least promising for finding detailed caregiver resource information (like support groups, financial aid, program details, contact info).")
