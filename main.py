@@ -19,6 +19,7 @@ from utils.scraper_utils import (
     get_browser_config,
     get_llm_strategy,
 )
+from utils.llm_utils import dedupe_and_enrich_resource
 
 # Load environment variables
 load_dotenv()
@@ -85,7 +86,7 @@ async def crawl_resources(start_urls: list[str], output_filename: str):
 
             try:
                 # Updated function call arguments
-                resources, provider = await fetch_and_process_page(
+                resources, provider, resource_dict = await fetch_and_process_page(
                     crawler=crawler,
                     url=url,
                     css_selector=CSS_SELECTOR,
@@ -95,9 +96,9 @@ async def crawl_resources(start_urls: list[str], output_filename: str):
                     seen_resource_identifiers=seen_resource_identifiers,
                     global_crawled_urls=task_visited_urls,
                 )
-
                 if resources:
-                    all_resources.extend(resources)
+                    new_resources = [await dedupe_and_enrich_resource(resource_set, key, provider) for key, resource_set in resource_dict.items()]
+                    all_resources.extend(new_resources)
                     logging.info(f"✅ {len(resources)} resources added from {url} (Total: {len(all_resources)})")
                 else:
                     logging.info(f"⚠️ No resources found on {url}")

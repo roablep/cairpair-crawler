@@ -15,6 +15,14 @@ def is_duplicate_resource(resource_identifier: str, seen_resource_identifiers: S
         pass
     return dupe
 
+def is_missing_too_many_fields(resource: CareResource) -> bool:
+    should_haves = ['location_state', 'description', 'schedule_details', 'age_range', 'target_audience', 'cost_details', 'eligibility_criteria','languages', 'accessibility_features']
+    val_present = 0
+    for key in should_haves:
+        value = getattr(resource, key)
+        if value and len(value) > 0:
+            val_present += 1
+    return val_present / len(should_haves) * 1.0 < .5
 
 def is_complete_resource(resource: BaseModel, required_keys: List[str] = REQUIRED_KEYS) -> bool:  # Added type hints
     for key in required_keys:

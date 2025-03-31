@@ -12,7 +12,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.rate_limiters import InMemoryRateLimiter
 
 from config import RESOURCE_TYPE_CATEGORIES
-from models.resource import RankedUrlList
+from models.resource import RankedUrlList, CareResource, ResourceProvider
 
 load_dotenv()
 
@@ -33,6 +33,56 @@ def get_langchain_model() -> BaseChatModel:
     # return ChatGroq(model='deepseek-r1-distill-llama-70b', temperature=0.2, api_key=os.getenv("GROQ_API_KEY"), rate_limiter=rate_limiter)
     return ChatGoogleGenerativeAI(model='gemini-2.0-flash-lite', temperature=0.2, api_key=os.getenv("GOOGLE_API_KEY"), rate_limiter=rate_limiter)
 
+async def dedupe_and_enrich_resource(
+    resources: list[dict],
+    key: str,
+    provider: ResourceProvider,
+    llm: BaseChatModel = get_langchain_model()
+) -> Optional[dict]:
+    """
+    Use an LLM to deduplicate and enrich a list of CareResource objects, returning a single merged version.
+    """
+    if not resources:
+        return None
+
+    try:
+        # Prepare input string
+        raw_resources_str = "\n\n".join([str(res) for res in resources])
+
+        system_prompt = (
+            "You are a smart data enrichment algorithm. Your task is to deduplicate and enrich overlapping resource entries. "
+            "Each resource describes the same or related service but may contain missing or conflicting details. "
+            "Your job is to intelligently combine the entries into a single, comprehensive version that retains the most accurate, complete, and specific information.\n\n"
+            "Preserve accurate fields like phone, email, descriptions, URLs, tags, and categories. Prefer more complete or detailed descriptions. "
+            "Remove empty or redundant values. Fill in missing fields using other entries if available.\n\n"
+            "You must return a single JSON object that matches the CareResource schema. If unsure about a field, use `null` or leave it out."
+        )
+
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", system_prompt),
+                (
+                    "human",
+                    "Here are multiple possibly overlapping resources for {key} from the same provider:\n\n{resources}\n\n"
+                    "The provider is: {provider}\n\n"
+                    "Please return ONE merged, enriched CareResource JSON object that takes the best from each."
+                )
+            ]
+        )
+
+        chain = prompt | llm.with_structured_output(CareResource)
+
+        enriched: CareResource = await chain.ainvoke({
+            "resources": raw_resources_str,
+            "key": key,
+            "provider": provider.model_dump_json()
+        })
+
+        return enriched.model_dump()
+
+    except Exception as e:
+        logger.error(f"LLM dedupe/enrichment failed: {e}", exc_info=True)
+        return None
 
 async def extract_with_llm(content: str, extraction_template: BaseModel, llm: BaseChatModel = get_langchain_model()) -> Optional[BaseModel]:
     """Processes HTML content with LangChain and the LLM."""

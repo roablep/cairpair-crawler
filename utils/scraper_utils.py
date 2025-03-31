@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from typing import List, Set, Optional
 import asyncio
+from collections import defaultdict
 from crawl4ai import (
     AsyncWebCrawler,
     BrowserConfig,
@@ -18,7 +19,7 @@ from typing import Dict, Any  # Added for type hinting
 
 from utils.llm_utils import extract_with_llm, rank_pages_for_secondary_crawl, classify_resource_type
 from models.resource import CareResource, CareResourceforLLM, CareResourcesforLLM, CareResources, ResourceProviderforLLM, ResourceProvider, RankedUrlList
-from utils.data_utils import is_complete_resource, is_duplicate_resource, save_resource_to_gzipped_pickle
+from utils.data_utils import is_complete_resource, is_duplicate_resource, save_resource_to_gzipped_pickle, is_missing_too_many_fields
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +91,9 @@ async def fetch_and_process_page(
     max_depth: int = 1,
     max_secondary_links: int = 3,
     existing_resources: Optional[list[Optional[dict]]] = None,
+    existing_resources_dict: Optional[defaultdict] = None,
     existing_provider: Optional[ResourceProvider] = None,
-) -> tuple[List[Optional[dict[str, Any]]], Optional[ResourceProvider]]:
+) -> tuple[List[Optional[dict[str, Any]]], Optional[ResourceProvider], Optional[defaultdict]]:
     """
     Fetches and processes resource data from a single URL.
 
@@ -116,15 +118,17 @@ async def fetch_and_process_page(
     # --- Base Case Checks ---
     if existing_resources is None:
         existing_resources = []
+    if existing_resources_dict is None:
+        existing_resources_dict = defaultdict(list)
     trigger_secondary_crawl = False
     # Check 1: Already crawled globally in this job?
     if url in global_crawled_urls:
         logger.info(f"[Depth {current_depth}] Skipping already crawled URL: {url}")
-        return [], None
+        return [], None, None
     # Check 2: Exceeded maximum depth?
     if current_depth > max_depth:
         logger.warning(f"[Depth {current_depth}] Max depth ({max_depth}) reached for URL: {url}. Stopping descent.")
-        return [], None
+        return [], None, None
 
     config = CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,  # Do not use cached data
@@ -149,7 +153,7 @@ async def fetch_and_process_page(
 
     if not result.success or not result.markdown:
         print(f"Error fetching page {url}: {result.error_message}")  # Use url in log
-        return [], None  # Return empty list on error
+        return [], None, None  # Return empty list on error
 
     ranked_pages = None
 
@@ -163,7 +167,7 @@ async def fetch_and_process_page(
     care_resources: CareResources = await extract_with_llm(content=result.markdown, extraction_template=CareResourcesforLLM)
     resources = care_resources.resources
 
-    if (resources is None or len(resources) == 0 or not all(is_complete_resource(r) for r in resources)) and current_depth < max_depth:
+    if (resources is None or len(resources) == 0 or not all(is_complete_resource(r) or is_missing_too_many_fields(r) for r in resources)) and current_depth < max_depth:
         logger.info(f"Generating 2ndary crawl candidates for {result.url}")
         ranked_pages: RankedUrlList = await rank_pages_for_secondary_crawl(content=result.markdown)
         trigger_secondary_crawl = True
@@ -178,10 +182,6 @@ async def fetch_and_process_page(
     for resource in resources:
         # Process each resource immediately with the current result.url
         resource_identifier = resource.resource_name
-        if is_duplicate_resource(resource_identifier, seen_resource_identifiers):
-            print(f'Skipping {resource_identifier}')
-            continue  # Skip duplicates
-        seen_resource_identifiers.add(resource_identifier)
 
         resource_info = resource.model_dump()
         if resource_info['resource_category']:
@@ -197,13 +197,19 @@ async def fetch_and_process_page(
         new_resource.date_added_to_db = datetime.now()
         new_resource.date_last_reviewed = datetime.now()
 
-        existing_resources.append(new_resource.model_dump())
+        new_resource_dict = new_resource.model_dump()
+        existing_resources_dict[resource_identifier].append(new_resource_dict)
+        if is_duplicate_resource(resource_identifier, seen_resource_identifiers):
+            print(f'Skipping {resource_identifier}')
+            continue  # Skip duplicates in the old holding pen, but add to the dict
+        seen_resource_identifiers.add(resource_identifier)
+        existing_resources.append(new_resource_dict)
 
     if trigger_secondary_crawl:
         if ranked_pages and current_depth < max_depth:
             for i, secondary_url in enumerate(ranked_pages[:max_secondary_links]):
                 logger.info(f"[Depth {current_depth}] >>> Trying secondary URL #{i+1}: {secondary_url}")
-                secondary_resources, _ = await fetch_and_process_page(
+                secondary_resources, _, existing_resources_dict = await fetch_and_process_page(
                     crawler=crawler,  # *** Pass the SAME crawler instance ***
                     url=secondary_url,
                     llm_strategy=None,
@@ -219,14 +225,15 @@ async def fetch_and_process_page(
                 )
                 if secondary_resources:
                     existing_resources.extend(secondary_resources)
+                    existing_resources_dict[resource_identifier].extend(new_resource_dict)
                 else:
                     logging.debug(f"No resources found on subpage {secondary_url}.")
 
     if not existing_resources:
         logging.debug(f"No complete and non-duplicate resources found on page {url}.")
-        return [], provider
+        return [], provider, None
 
     new_provider = ResourceProvider(**provider.model_dump())
     new_provider.resources = existing_resources
     # print(f"Processed {len(complete_resources)} resources from {url}.")
-    return existing_resources, new_provider  # Return only the list
+    return existing_resources, new_provider, existing_resources_dict
