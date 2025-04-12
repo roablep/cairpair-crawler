@@ -38,6 +38,5 @@ TagType = Literal[
     "training",
 ]
 
-
 class TagOutput(BaseModel):
     tag: TagType
