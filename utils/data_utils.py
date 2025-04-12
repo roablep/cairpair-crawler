@@ -16,7 +16,7 @@ def is_duplicate_resource(resource_identifier: str, seen_resource_identifiers: S
     return dupe
 
 def is_missing_too_many_fields(resource: CareResource) -> bool:
-    should_haves = ['location_state', 'description', 'schedule_details', 'age_range', 'target_audience', 'cost_details', 'eligibility_criteria','languages', 'accessibility_features']
+    should_haves = ['location_state', 'description', 'time_slots', 'age_range', 'target_audience', 'cost_details', 'eligibility_criteria', 'resource_format', 'languages', 'accessibility_features']
     val_present = 0
     for key in should_haves:
         value = getattr(resource, key)

@@ -147,7 +147,7 @@ class CareResource(BaseModel):
     )
 
 
-class CareResourceForLLM(BaseModel):
+class CareResourceforLLM(BaseModel):
     # Core Identifiers
     provider_name: Optional[str] = Field(
         None, description="The official name of the resource or service provider."
