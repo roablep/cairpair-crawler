@@ -3,6 +3,7 @@ import pickle
 import gzip
 from typing import Set, Dict, Any, List
 import csv
+from collections import defaultdict
 from datetime import datetime
 from pydantic import BaseModel
 from models.resource import CareResource, CareResources
@@ -74,3 +75,35 @@ def save_resources_to_csv(resources: List[Dict[str, Any]], filename: str):
             formatted_resources.append(formatted_resource)
         writer.writerows(formatted_resources)
     print(f"Saved {len(resources)} resources to '{filename}'.")  # Fixed typo: resource -> resources
+
+def analyze_field_completion(resources: List[CareResource]) -> Dict[str, float]:
+    """
+    Analyze field completion rates across a list of CareResource objects.
+
+    Returns:
+        Dictionary of {field_name: completion_rate_percentage}.
+    """
+    if not resources:
+        print("No resources to analyze.")
+        return {}
+
+    field_counts = defaultdict(int)
+    total_resources = len(resources)
+
+    # Loop through all resources
+    for resource in resources:
+        data = resource.model_dump()
+        for field, value in data.items():
+            if value not in [None, "", [], {}]:
+                field_counts[field] += 1
+
+    # Calculate completion rates
+    completion_rates = {
+        field: round((count / total_resources) * 100, 1)
+        for field, count in field_counts.items()
+    }
+
+    # Sort by lowest completion first for visibility
+    completion_rates = dict(sorted(completion_rates.items(), key=lambda item: item[1]))
+
+    return completion_rates
