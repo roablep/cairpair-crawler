@@ -1,6 +1,7 @@
 # model/resource_provider.py
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
+from models.resource import CareResource
 
 class ResourceProvider(BaseModel):
     """
@@ -33,7 +34,7 @@ class ResourceProvider(BaseModel):
     contact_phone: Optional[str] = Field(None, description="Contact phone number.")
     contact_email: Optional[str] = Field(None, description="Contact email address.")
     website: Optional[str] = Field(None, description="Primary website for the resource.")
-    resources: list[Optional[dict]] = []
+    resources: list[Optional[CareResource]] = []
 
 class ResourceProviderforLLM(BaseModel):
     """
@@ -66,7 +67,3 @@ class ResourceProviderforLLM(BaseModel):
     contact_phone: Optional[str] = Field(None, description="Contact phone number.")
     contact_email: Optional[str] = Field(None, description="Contact email address.")
     website: Optional[str] = Field(None, description="Primary website for the resource.")
-
-
-class foo(ResourceProvider):
-    model_config = ConfigDict(ex)

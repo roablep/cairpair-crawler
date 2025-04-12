@@ -92,10 +92,10 @@ async def fetch_and_process_page(
     current_depth: int = 0,
     max_depth: int = 1,
     max_secondary_links: int = 3,
-    existing_resources: Optional[list[Optional[dict]]] = None,
+    existing_resources: Optional[list[Optional[CareResource]]] = None,
     existing_resources_dict: Optional[defaultdict] = None,
     existing_provider: Optional[ResourceProvider] = None,
-) -> tuple[List[Optional[dict[str, Any]]], Optional[ResourceProvider], Optional[defaultdict]]:
+) -> tuple[List[Optional[CareResource]], Optional[ResourceProvider], defaultdict]:
     """
     Fetches and processes resource data from a single URL.
 
@@ -126,11 +126,11 @@ async def fetch_and_process_page(
     # Check 1: Already crawled globally in this job?
     if url in global_crawled_urls:
         logger.info(f"[Depth {current_depth}] Skipping already crawled URL: {url}")
-        return [], None, None
+        return existing_resources, None, existing_resources_dict
     # Check 2: Exceeded maximum depth?
     if current_depth > max_depth:
         logger.warning(f"[Depth {current_depth}] Max depth ({max_depth}) reached for URL: {url}. Stopping descent.")
-        return [], None, None
+        return existing_resources, None, existing_resources_dict
 
     config = CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,  # Do not use cached data
@@ -155,7 +155,7 @@ async def fetch_and_process_page(
 
     if not result.success or not result.markdown:
         print(f"Error fetching page {url}: {result.error_message}")  # Use url in log
-        return [], None, None  # Return empty list on error
+        return existing_resources, None, existing_resources_dict
 
     ranked_pages = None
 
@@ -191,24 +191,24 @@ async def fetch_and_process_page(
 
         cat_subscat = await classify_resource_type_detail(resource_info)
 
-        tags = await classify_resource_type_tags(resource_info)
+        tag = await classify_resource_type_tags(resource_info)
 
         new_resource = CareResource(**resource.model_dump())
         new_resource.source_url = url
         new_resource.source_origin = urlparse(result.url).netloc
         new_resource.resource_category = cat_subscat.category
         new_resource.resource_subcategory = cat_subscat.subcategory
-        new_resource.tags = tags
+        new_resource.tags = tag
         new_resource.date_added_to_db = datetime.now()
         new_resource.date_last_reviewed = datetime.now()
 
         new_resource_dict = new_resource.model_dump()
-        existing_resources_dict[resource_identifier].append(new_resource_dict)
+        existing_resources_dict[resource_identifier].append(new_resource)
         if is_duplicate_resource(resource_identifier, seen_resource_identifiers):
             print(f'Skipping {resource_identifier}')
             continue  # Skip duplicates in the old holding pen, but add to the dict
         seen_resource_identifiers.add(resource_identifier)
-        existing_resources.append(new_resource_dict)
+        existing_resources.append(new_resource)
 
     if trigger_secondary_crawl:
         if ranked_pages and current_depth < max_depth:
@@ -230,13 +230,13 @@ async def fetch_and_process_page(
                 )
                 if secondary_resources:
                     existing_resources.extend(secondary_resources)
-                    existing_resources_dict[resource_identifier].extend(new_resource_dict)
+                    existing_resources_dict[resource_identifier].extend(new_resource_dict)   # Is this a possible bug? Extending new_resource_dict? 
                 else:
                     logging.debug(f"No resources found on subpage {secondary_url}.")
 
     if not existing_resources:
         logging.debug(f"No complete and non-duplicate resources found on page {url}.")
-        return [], provider, None
+        return existing_resources, provider, existing_resources_dict
 
     new_provider = ResourceProvider(**provider.model_dump())
     new_provider.resources = existing_resources

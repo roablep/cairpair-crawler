@@ -13,7 +13,7 @@ from langchain_groq import ChatGroq
 from pydantic import BaseModel, create_model
 
 from config import RESOURCE_TYPE_CATEGORIES
-from models.resource import CareResource
+from models.resource import CareResource, CareResources
 from models.resource_provider import ResourceProvider, ResourceProviderforLLM
 from models.other_models import RankedUrlList, TagType, TagOutput
 
@@ -36,29 +36,44 @@ def get_langchain_model() -> BaseChatModel:
     # return ChatGroq(model='deepseek-r1-distill-llama-70b', temperature=0.1, api_key=os.getenv("GROQ_API_KEY"), rate_limiter=rate_limiter)
     return ChatGoogleGenerativeAI(model='gemini-2.0-flash-lite', temperature=0.1, api_key=os.getenv("GOOGLE_API_KEY"), rate_limiter=rate_limiter)
 
-async def dedupe_and_enrich_resource(
-    resources: list[dict],
+
+async def dedupe_and_enrich_resources(
+    resources: list[CareResource],
     key: str,
     provider: ResourceProvider,
     llm: BaseChatModel = get_langchain_model()
-) -> Optional[dict]:
+) -> List[Optional[CareResource]]:
     """
-    Use an LLM to deduplicate and enrich a list of CareResource objects, returning a single merged version.
+    Use an LLM to deduplicate and enrich a list of CareResource objects, returning a list of merged versions.
+    FIXED: Now returns a list of CareResource, not a single one.
     """
     if not resources:
         return None
 
+    if not provider:
+        logger.warning(f"provider not provided for {key}, {resources}")
+
+    if any(x is None for x in resources):
+        logger.error(f"BUG 1: Null value in {resources}")
+
     try:
         # Prepare input string
-        raw_resources_str = "\n\n".join([str(res) for res in resources])
+        raw_resources_str = "\n\n".join([
+            res.model_dump_json(exclude_unset=True, exclude_none=True) for res in resources
+        ])
 
         system_prompt = (
-            "You are a smart data enrichment algorithm. Your task is to deduplicate and enrich overlapping resource entries. "
-            "Each resource describes the same or related service but may contain missing or conflicting details. "
-            "Your job is to intelligently combine the entries into a single, comprehensive version that retains the most accurate, complete, and specific information.\n\n"
-            "Preserve accurate fields like phone, email, descriptions, URLs, tags, and categories. Prefer more complete or detailed descriptions. "
-            "Remove empty or redundant values. Fill in missing fields using other entries if available.\n\n"
-            "You must return a single JSON object that matches the CareResource schema. If unsure about a field, use `null` or leave it out."
+            "You are a smart data enrichment algorithm. Your task is to deduplicate and enrich multiple potentially overlapping caregiving resource entries. "
+            "Your goal is to return a list of cleaned, enriched, distinct CareResource objects. "
+            "If multiple entries describe different resources, keep them separate. If entries overlap, merge them intelligently into a single object.\n\n"
+            "Guidelines:\n"
+            "- Preserve accurate fields like phone, email, descriptions, URLs, tags, and categories.\n"
+            "- Prefer more complete or detailed descriptions.\n"
+            "- Remove empty or redundant values.\n"
+            "- Fill in missing fields using other entries if available.\n"
+            "- Return a list of CareResource objects in valid JSON format.\n"
+            "- IMPORTANT: Follow the CareResource schema strictly.\n"
+            "- If unsure about a field, set it to null or leave it out."
         )
 
         prompt = ChatPromptTemplate.from_messages(
@@ -66,26 +81,35 @@ async def dedupe_and_enrich_resource(
                 ("system", system_prompt),
                 (
                     "human",
-                    "Here are multiple possibly overlapping resources for {key} from the same provider:\n\n{resources}\n\n"
+                    "Here are multiple caregiving resources for {key} from the same provider:\n\n{resources}\n\n"
                     "The provider is: {provider}\n\n"
-                    "Please return ONE merged, enriched CareResource JSON object that takes the best from each."
+                    "Please return a list of merged, enriched CareResource JSON objects that takes the best from each."
                 )
             ]
         )
 
-        chain = prompt | llm.with_structured_output(CareResource)
+        # Note: Output is now a List[CareResource], not single
+        chain = prompt | llm.with_structured_output(CareResources)
 
-        enriched: CareResource = await chain.ainvoke({
+        prompt_completion = {
             "resources": raw_resources_str,
             "key": key,
-            "provider": provider.model_dump_json()
-        })
+        }
+        if provider:
+            prompt_completion['provider'] = provider.model_dump_json()
 
-        return enriched.model_dump()
+        enriched_CareResources: CareResources = await chain.ainvoke(prompt_completion)
+        enriched_resources = enriched_CareResources.resources
+
+        if any(x is None for x in enriched_resources):
+            logger.error(f"BUG 2: Null value in {enriched_resources}")
+
+        return enriched_resources or []
 
     except Exception as e:
         logger.error(f"LLM dedupe/enrichment failed: {e}", exc_info=True)
         return None
+
 async def extract_with_llm(
     content: str,
     extraction_template: BaseModel,
@@ -231,7 +255,7 @@ async def rank_pages_for_secondary_crawl(content: str, llm: BaseChatModel = get_
         logger.error(f"Error ranking pages for secondary crawl: {e}", exc_info=True)
         return []
 
-async def classify_resource_type_tags(content, llm: BaseChatModel = get_langchain_model()) -> Optional[TagOutput]:
+async def classify_resource_type_tags(content, llm: BaseChatModel = get_langchain_model()) -> Optional[TagType]:
     """
     Classifies the resource tag based on the provided content.
 
@@ -265,7 +289,7 @@ async def classify_resource_type_tags(content, llm: BaseChatModel = get_langchai
 
         output: Optional[TagOutput] = await chain.ainvoke({"content": content})
 
-        return output
+        return output.tag if output else None
 
     except Exception as e:
         logger.error(f"Error classifying resource tag: {e}", exc_info=True)

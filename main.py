@@ -13,13 +13,16 @@ from crawl4ai import AsyncWebCrawler
 from dotenv import load_dotenv
 
 from config import CSS_SELECTOR, REQUIRED_KEYS
-from utils.data_utils import save_resources_to_csv, save_resource_to_gzipped_pickle
+from utils.data_utils import save_resources_to_csv, save_resource_to_gzipped_pickle, analyze_field_completion
 from utils.scraper_utils import (
     fetch_and_process_page,
     get_browser_config,
     get_llm_strategy,
 )
-from utils.llm_utils import dedupe_and_enrich_resource
+from utils.llm_utils import dedupe_and_enrich_resources
+
+from models.resource_provider import ResourceProvider
+from models.resource import CareResource
 
 # Load environment variables
 load_dotenv()
@@ -68,8 +71,8 @@ async def crawl_resources(start_urls: list[str], output_filename: str):
     session_id = f"crawl_session_{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
     task_visited_urls: Set = set()
-    all_providers: List[Dict[str, Any]] = []
-    all_resources: List[Dict[str, Any]] = []
+    all_providers: List[ResourceProvider] = []
+    all_resources: List[CareResource] = []
     seen_resource_identifiers: Set[str] = set()
     urls_to_crawl = set(start_urls)
     crawled_urls = set()
@@ -97,8 +100,10 @@ async def crawl_resources(start_urls: list[str], output_filename: str):
                     global_crawled_urls=task_visited_urls,
                 )
                 if resources:
-                    new_resources = [await dedupe_and_enrich_resource(resource_set, key, provider) for key, resource_set in resource_dict.items()]
-                    all_resources.extend(new_resources)
+                    new_resources = [await dedupe_and_enrich_resources(resource_set, key, provider) for key, resource_set in resource_dict.items()]
+                    for resource_list in new_resources:
+                        if resource_list:
+                            all_resources.extend(resource_list)
                     logging.info(f"✅ {len(resources)} resources added from {url} (Total: {len(all_resources)})")
                 else:
                     logging.info(f"⚠️ No resources found on {url}")
@@ -111,18 +116,24 @@ async def crawl_resources(start_urls: list[str], output_filename: str):
     data_dir = "data"
     os.makedirs(data_dir, exist_ok=True)
     if all_resources:
+        all_resources_as_dicts = [resource.model_dump() for resource in all_resources if resource]
         full_output_path = os.path.join(data_dir, output_filename)
-        save_resources_to_csv(all_resources, full_output_path)
+        save_resources_to_csv(all_resources_as_dicts, full_output_path)
         logging.info(f"📦 All resources saved to {full_output_path}")
+        completion_rates = analyze_field_completion(all_resources)
     else:
         logging.warning("🚫 No resources extracted.")
 
     if all_providers:
+        all_providers_as_dicts = [provider.model_dump() for provider in all_providers if resource]
         full_output_path = os.path.join(data_dir, 'providers.pkl.gz')
-        save_resource_to_gzipped_pickle(all_providers, full_output_path)
+        save_resource_to_gzipped_pickle(all_providers_as_dicts, full_output_path)
 
     logging.info("📊 LLM Usage:")
     llm_strategy.show_usage()
+    print("\n=== Field Completion Rates ===")
+    for field, rate in completion_rates.items():
+        print(f"{field:<25}: {rate}%")
 
 
 # --- Main Entry Point ---
