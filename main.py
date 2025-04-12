@@ -128,7 +128,7 @@ async def crawl_resources(start_urls: list[str], output_filename: str):
 # --- Main Entry Point ---
 async def main():
     parser = argparse.ArgumentParser(
-        description="CarePair Resource Crawler – Extracts dementia caregiver resources from web pages."
+        description="CarePair Resource Crawler - Extracts dementia caregiver resources from web pages."
     )
     parser.add_argument(
         'urls',

@@ -1,18 +1,21 @@
 # utils/llm_utils.py
 
-import os
 import logging
+import os
+from typing import Dict, List, Optional
+
 from dotenv import load_dotenv
-from typing import Optional, List, Dict
-from pydantic import BaseModel
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_groq import ChatGroq
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.rate_limiters import InMemoryRateLimiter
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
+from pydantic import BaseModel
 
 from config import RESOURCE_TYPE_CATEGORIES
-from models.resource import RankedUrlList, CareResource, ResourceProvider
+from models.resource import CareResource
+from models.resource_provider import ResourceProvider, ResourceProviderforLLM
+from models.other_models import RankedUrlList, TagType, TagOutput
 
 load_dotenv()
 
@@ -176,7 +179,47 @@ async def rank_pages_for_secondary_crawl(content: str, llm: BaseChatModel = get_
         logger.error(f"Error ranking pages for secondary crawl: {e}", exc_info=True)
         return []
 
-async def classify_resource_type(content, llm: BaseChatModel = get_langchain_model()) -> category:
+async def classify_resource_type_tags(content, llm: BaseChatModel = get_langchain_model()) -> Optional[TagOutput]:
+    """
+    Classifies the resource tag based on the provided content.
+
+    Args:
+        content: The content to classify.
+        llm: The language model instance to use.
+
+    Returns:
+        The classified resource tag, or None if classification fails.
+    """
+    try:
+        # Prepare the list of tags to show in the system prompt
+        formatted_tags = "\n".join(f"- {tag}" for tag in TagType.__args__)
+
+        prompt_template = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    f"You are an expert in classifying resources for caregivers, people with dementia, or older adults. "
+                    f"Given the provided content, determine the most appropriate tag from the following list:\n\n{formatted_tags}\n\n"
+                    "Return ONLY ONE tag from the list. If none fit, return None."
+                ),
+                (
+                    "human",
+                    "Here is the content to classify:\n{content}"
+                ),
+            ]
+        )
+
+        chain = prompt_template | llm.with_structured_output(TagOutput)
+
+        output: Optional[TagOutput] = await chain.ainvoke({"content": content})
+
+        return output
+
+    except Exception as e:
+        logger.error(f"Error classifying resource tag: {e}", exc_info=True)
+        return None
+
+async def classify_resource_type_detail(content, llm: BaseChatModel = get_langchain_model()) -> category:
     """
     Classifies the resource type based on the provided content.
 

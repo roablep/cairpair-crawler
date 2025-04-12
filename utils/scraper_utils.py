@@ -17,8 +17,10 @@ from crawl4ai import (
 from urllib.parse import urlparse
 from typing import Dict, Any  # Added for type hinting
 
-from utils.llm_utils import extract_with_llm, rank_pages_for_secondary_crawl, classify_resource_type
-from models.resource import CareResource, CareResourceforLLM, CareResourcesforLLM, CareResources, ResourceProviderforLLM, ResourceProvider, RankedUrlList
+from utils.llm_utils import extract_with_llm, rank_pages_for_secondary_crawl, classify_resource_type_detail, classify_resource_type_tags
+from models.resource_provider import ResourceProvider, ResourceProviderforLLM
+from models.resource import CareResource, CareResourceforLLM, CareResourcesforLLM, CareResources
+from models.other_models import RankedUrlList
 from utils.data_utils import is_complete_resource, is_duplicate_resource, save_resource_to_gzipped_pickle, is_missing_too_many_fields
 
 logger = logging.getLogger(__name__)
@@ -187,13 +189,16 @@ async def fetch_and_process_page(
         if resource_info['resource_category']:
             del resource_info['resource_category']
 
-        cat_subscat = await classify_resource_type(resource_info)
+        cat_subscat = await classify_resource_type_detail(resource_info)
+
+        tags = await classify_resource_type_tags(resource_info)
 
         new_resource = CareResource(**resource.model_dump())
         new_resource.source_url = url
         new_resource.source_origin = urlparse(result.url).netloc
         new_resource.resource_category = cat_subscat.category
         new_resource.resource_subcategory = cat_subscat.subcategory
+        new_resource.tags = tags
         new_resource.date_added_to_db = datetime.now()
         new_resource.date_last_reviewed = datetime.now()
 
