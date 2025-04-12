@@ -230,7 +230,6 @@ async def fetch_and_process_page(
                 )
                 if secondary_resources:
                     existing_resources.extend(secondary_resources)
-                    existing_resources_dict[resource_identifier].extend(new_resource_dict)   # Is this a possible bug? Extending new_resource_dict? 
                 else:
                     logging.debug(f"No resources found on subpage {secondary_url}.")
 
