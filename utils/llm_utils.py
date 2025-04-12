@@ -10,7 +10,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
-from pydantic import BaseModel
+from pydantic import BaseModel, create_model
 
 from config import RESOURCE_TYPE_CATEGORIES
 from models.resource import CareResource
@@ -33,8 +33,8 @@ rate_limiter = InMemoryRateLimiter(
 
 def get_langchain_model() -> BaseChatModel:
     """Returns a LangChain Groq LLM instance."""
-    # return ChatGroq(model='deepseek-r1-distill-llama-70b', temperature=0.2, api_key=os.getenv("GROQ_API_KEY"), rate_limiter=rate_limiter)
-    return ChatGoogleGenerativeAI(model='gemini-2.0-flash-lite', temperature=0.2, api_key=os.getenv("GOOGLE_API_KEY"), rate_limiter=rate_limiter)
+    # return ChatGroq(model='deepseek-r1-distill-llama-70b', temperature=0.1, api_key=os.getenv("GROQ_API_KEY"), rate_limiter=rate_limiter)
+    return ChatGoogleGenerativeAI(model='gemini-2.0-flash-lite', temperature=0.1, api_key=os.getenv("GOOGLE_API_KEY"), rate_limiter=rate_limiter)
 
 async def dedupe_and_enrich_resource(
     resources: list[dict],
@@ -86,29 +86,81 @@ async def dedupe_and_enrich_resource(
     except Exception as e:
         logger.error(f"LLM dedupe/enrichment failed: {e}", exc_info=True)
         return None
-
-async def extract_with_llm(content: str, extraction_template: BaseModel, llm: BaseChatModel = get_langchain_model()) -> Optional[BaseModel]:
+async def extract_with_llm(
+    content: str,
+    extraction_template: BaseModel,
+    llm: BaseChatModel = get_langchain_model(),
+    per_field_mode: bool = False
+) -> Optional[BaseModel]:
     """Processes HTML content with LangChain and the LLM."""
-    prompt_template = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                "You are an expert extraction algorithm. "
-                "Only extract relevant information from the text. "
-                "If you do not know the value of an attribute asked to extract, "
-                "return null for the attribute's value.",
-            ),
-            ("human", "{text}"),
-        ]
-    )
-    chain = prompt_template | llm.with_structured_output(extraction_template)
+    if per_field_mode:
+        field_values = {}
 
-    try:
-        output = await chain.ainvoke({"text": content})
-        return output
-    except Exception as e:
-        print(f"Langchain processing error: {e}")
-        return None
+        # ✅ Important: Build a *temporary single-field schema* per field
+        for field_name, field in type(extraction_template).model_fields.items():
+            # Dynamically create a single-field Pydantic model for structured output
+            SingleFieldModel = create_model(f"SingleFieldModel_{field_name}", **{field_name: (field.annotation, None)})
+
+            field_prompt_template = ChatPromptTemplate.from_messages(
+                [
+                    (
+                        "system",
+                        f"You are an expert data extraction assistant. "
+                        f"Your task is to extract **only the field** '{field_name}' from the following content.\nComform to the schema: {field}\nIf the field is not found or is unclear, respond with null."
+                    ),
+                    ("human", "{text}")
+                ]
+            )
+
+            chain = field_prompt_template | llm.with_structured_output(SingleFieldModel)
+
+            try:
+                output = await chain.ainvoke({"text": content})
+                # ✅ output is now a Pydantic model with the field name
+                field_values[field_name] = getattr(output, field_name)
+            except Exception as e:
+                logger.error(f"Error extracting field {field_name}: {e}", exc_info=True)
+                field_values[field_name] = None
+
+        # Build and return the model
+        try:
+            return extraction_template(**field_values)
+        except Exception as e:
+            logger.error(f"Error building model from field values: {e}", exc_info=True)
+            return None
+
+    else:
+        prompt_template = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """You are an expert information extraction algorithm.
+                    Your task is to extract caregiving resource data from the provided website text, field by field into a provided schema.
+
+                    For each field in the schema:
+                    1. Ask yourself: "Is this information explicitly or implicitly present?"
+                    2. If yes, extract the value cleanly.
+                    3. If no, set the value to null.
+                    4. Do not guess if unsure.
+                    Only extract relevant information from the text.
+                    If you do not know the value of an attribute asked to extract, return null for the attribute's value.
+                    Important:
+                    - Stay focused.
+                    - Be mechanical and disciplined.
+                    - Do not invent information.
+                    - Follow the schema order.""",
+                ),
+                ("human", "{text}"),
+            ]
+        )
+        chain = prompt_template | llm.with_structured_output(extraction_template)
+
+        try:
+            output = await chain.ainvoke({"text": content})
+            return output
+        except Exception as e:
+            logger.error(f"Langchain processing error: {e}", exc_info=True)
+            return None
 
 async def rank_pages_for_secondary_crawl(content: str, llm: BaseChatModel = get_langchain_model(), max_links_to_rank=5) -> List[str]:
     """
